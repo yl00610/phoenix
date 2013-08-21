@@ -30,10 +30,11 @@ package com.salesforce.phoenix.query;
 import static org.junit.Assert.*;
 
 import java.sql.*;
-import java.util.Iterator;
-import java.util.Properties;
+import java.sql.Date;
+import java.util.*;
 
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.util.Pair;
 import org.junit.*;
 
 import com.salesforce.phoenix.exception.SQLExceptionCode;
@@ -48,19 +49,8 @@ public class ConnectionlessUpsertTest {
     }
     
     @BeforeClass
-    public static void registerDriver() throws ClassNotFoundException, SQLException {
-        Class.forName(PhoenixDriver.class.getName());
-        DriverManager.registerDriver(PhoenixDriver.INSTANCE);
+    public static void verifyDriverRegistered() throws SQLException {
         assertTrue(DriverManager.getDriver(getUrl()) == PhoenixDriver.INSTANCE);
-    }
-    
-    @AfterClass
-    public static void deregisterDriver() throws SQLException {
-        try {
-            PhoenixDriver.INSTANCE.close();
-        } finally {
-            DriverManager.deregisterDriver(PhoenixDriver.INSTANCE);
-        }
     }
     
     @Test
@@ -95,7 +85,8 @@ public class ConnectionlessUpsertTest {
         statement.setDate(5,now);
         statement.execute();
         
-        Iterator<KeyValue> iterator = PhoenixRuntime.getUncommittedData(conn).iterator();
+        Iterator<Pair<byte[],List<KeyValue>>> dataIterator = PhoenixRuntime.getUncommittedDataIterator(conn);
+        Iterator<KeyValue> iterator = dataIterator.next().getSecond().iterator();
         assertTrue(iterator.hasNext());
         assertEquals("Eli", PDataType.VARCHAR.toObject(iterator.next().getValue()));
         assertTrue(iterator.hasNext());
@@ -109,6 +100,7 @@ public class ConnectionlessUpsertTest {
         assertTrue(iterator.hasNext());
         assertNull(PDataType.VARCHAR.toObject(iterator.next().getValue()));
         assertFalse(iterator.hasNext());
+        assertFalse(dataIterator.hasNext());
         conn.rollback(); // to clear the list of mutations for the next
     }
 

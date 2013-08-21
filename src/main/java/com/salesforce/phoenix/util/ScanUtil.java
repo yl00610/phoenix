@@ -40,7 +40,6 @@ import com.salesforce.phoenix.coprocessor.MetaDataProtocol;
 import com.salesforce.phoenix.filter.SkipScanFilter;
 import com.salesforce.phoenix.query.*;
 import com.salesforce.phoenix.query.KeyRange.Bound;
-import com.salesforce.phoenix.schema.PTable;
 import com.salesforce.phoenix.schema.RowKeySchema;
 
 
@@ -144,7 +143,7 @@ public class ScanUtil {
         return mayHaveRows;
     }
 
-    public static void andFilter(Scan scan, Filter andWithFilter) {
+    public static void andFilterAtBeginning(Scan scan, Filter andWithFilter) {
         if (andWithFilter == null) {
             return;
         }
@@ -159,6 +158,24 @@ public class ScanUtil {
             scan.setFilter(new FilterList(FilterList.Operator.MUST_PASS_ALL,allFilters));
         } else {
             scan.setFilter(new FilterList(FilterList.Operator.MUST_PASS_ALL,Arrays.asList(andWithFilter, filter)));
+        }
+    }
+
+    public static void andFilterAtEnd(Scan scan, Filter andWithFilter) {
+        if (andWithFilter == null) {
+            return;
+        }
+        Filter filter = scan.getFilter();
+        if (filter == null) {
+            scan.setFilter(andWithFilter); 
+        } else if (filter instanceof FilterList && ((FilterList)filter).getOperator() == FilterList.Operator.MUST_PASS_ALL) {
+            FilterList filterList = (FilterList)filter;
+            List<Filter> allFilters = new ArrayList<Filter>(filterList.getFilters().size() + 1);
+            allFilters.addAll(filterList.getFilters());
+            allFilters.add(andWithFilter);
+            scan.setFilter(new FilterList(FilterList.Operator.MUST_PASS_ALL,allFilters));
+        } else {
+            scan.setFilter(new FilterList(FilterList.Operator.MUST_PASS_ALL,Arrays.asList(filter, andWithFilter)));
         }
     }
 
@@ -255,7 +272,7 @@ public class ScanUtil {
              * 2) setting the lower bound when the type is fixed length
              *    for the same reason. However, if the type is variable width
              *    continue building the key because null values will be filtered
-             *    since our separator byte will be appended and increment.
+             *    since our separator byte will be appended and incremented.
              */
             if (  range.isUnbound(bound) &&
                 ( bound == Bound.UPPER || isFixedWidth) ){
@@ -288,7 +305,7 @@ public class ScanUtil {
             anyInclusiveUpperRangeKey |= !range.isSingleKey() && inclusiveUpper;
             // If we are setting the lower bound with an exclusive range key, we need to bump the
             // slot up for each key part. For an upper bound, we bump up an inclusive key, but
-            // only after then last key part.
+            // only after the last key part.
             if (!range.isSingleKey() && exclusiveLower) {
                 if (!ByteUtil.nextKey(key, offset)) {
                     // Special case for not being able to increment.
@@ -308,6 +325,16 @@ public class ScanUtil {
                 // key has overflowed, this means that we should not
                 // have an end key specified.
                 return -byteOffset;
+            }
+        }
+        // Remove trailing separator bytes, since the columns may have been added
+        // after the table has data, in which case there won't be a separator
+        // byte.
+        if (bound == Bound.LOWER) {
+            while (schemaStartIndex > 0 && offset > byteOffset && 
+                    !schema.getField(--schemaStartIndex).getType().isFixedWidth() && 
+                    key[offset-1] == QueryConstants.SEPARATOR_BYTE) {
+                offset--;
             }
         }
         return offset - byteOffset;
@@ -353,24 +380,6 @@ public class ScanUtil {
             return mid;
         } else {
             return ++mid;
-        }
-    }
-
-    /**
-     * Clear the projection of the QueryConstants.EMPTY_COLUMN_BYTES in the scan. Used in cases where the
-     * scan will be reused across multiple query compiles, like UPSERT SELECT.
-     * TODO: Project empty column family from QueryPlan.newScanner instead of ProjectionCompiler to avoid
-     * having to do this.
-     * @param scan
-     */
-    public static void removeEmptyColumnFamily(Scan scan, PTable table) {
-        Map<byte [], NavigableSet<byte []>> familyMap = scan.getFamilyMap();
-        byte[] emptyCF = SchemaUtil.getEmptyColumnFamily(table.getColumnFamilies());
-        NavigableSet<byte []> keyValues = familyMap.get(emptyCF);
-        if (keyValues != null) {
-            if (keyValues.remove(QueryConstants.EMPTY_COLUMN_BYTES) && keyValues.isEmpty()) {
-                familyMap.remove(emptyCF);
-            }
         }
     }
 }

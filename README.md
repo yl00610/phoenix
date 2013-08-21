@@ -5,7 +5,7 @@ Phoenix is a SQL skin over HBase, delivered as a client-embedded JDBC driver, po
 Become the standard means of accessing HBase data through a well-defined, industry standard API.
 
 ## Quick Start
-Tired of reading already and just want to get started? Jump over to our quick start guide [here](https://github.com/forcedotcom/phoenix/wiki/Phoenix-in-15-minutes-or-less).
+Tired of reading already and just want to get started? Jump over to our quick start guide [here](https://github.com/forcedotcom/phoenix/wiki/Phoenix-in-15-minutes-or-less) or map to your existing HBase tables as described [here](https://github.com/forcedotcom/phoenix/wiki#wiki-mapping) and start querying now.
 
 ## How It Works ##
 
@@ -13,9 +13,8 @@ The Phoenix query engine transforms your [SQL query](http://forcedotcom.github.c
 
 Tables are created and altered through [DDL statements](http://forcedotcom.github.com/phoenix/#create), and their schema is stored and versioned on the server in an HBase table. Columns are defined as either being part of a multi-part row key, or as key/value cells. You can also map Phoenix on to existing tables (see the [wiki](https://github.com/forcedotcom/phoenix/wiki) for more details).
 
-Applications interact with Phoenix through a standard JDBC interface; all the usual interfaces are supported, including `Connection`, `Statement`, `PreparedStatement`, and `ResultSet`. The driver class is `com.salesforce.phoenix.jdbc.PhoenixDriver`, and the [connection url](https://github.com/forcedotcom/Phoenix/wiki#wiki-connStr) is `jdbc:phoenix:` followed by the zookeeper quorum hostname specification plus optionally the port number and/or root node. For example:
+Applications interact with Phoenix through a standard JDBC interface; all the usual interfaces are supported, including `Connection`, `Statement`, `PreparedStatement`, and `ResultSet`. The driver class is `com.salesforce.phoenix.jdbc.PhoenixDriver`, JDK 1.5+ automatically registers JDBC driver on classpath, and the [connection url](https://github.com/forcedotcom/phoenix/wiki#wiki-connStr) is `jdbc:phoenix:` followed by the zookeeper quorum hostname specification plus optionally the port number and/or root node. For example:
 
-        Class.forName("com.salesforce.phoenix.jdbc.PhoenixDriver");
         Connection conn = DriverManager.getConnection("jdbc:phoenix:localhost");
 
 For detailed documentation on the current level of SQL support, see our [language reference guide](http://forcedotcom.github.com/phoenix/). For details about how Phoenix handles schema, transactions, and more, see the [wiki](https://github.com/forcedotcom/phoenix/wiki).
@@ -70,7 +69,7 @@ In addition, you can use the bin/psql.sh to execute to load CSV data or execute 
 If you'd rather use a client GUI to interact with Phoenix, download and install [SQuirrel](http://squirrel-sql.sourceforge.net/). Since Phoenix is a JDBC driver, integration with tools such as this are seamless. Here are the setup steps necessary:
 
 1. Remove prior phoenix-[version]-client.jar from the lib directory of SQuirrel
-2. Copy the phoenix-[version]-client.jar into the lib directory of SQuirrel
+2. Copy the phoenix-[version]-client.jar into the lib directory of SQuirrel (Note that on a Mac, this is the *internal* lib directory).
 3. Start SQuirrel and add new driver to SQuirrel (Drivers -> New Driver)
 4. In Add Driver dialog box, set Name to Phoenix
 5. Press List Drivers button and com.salesforce.phoenix.jdbc.PhoenixDriver should be automatically populated in the Class Name textbox. Press OK to close this dialog.
@@ -109,7 +108,7 @@ Currently, Phoenix hosts its own maven repository in github. This is done for co
     <dependency>
         <groupId>com.salesforce</groupId>
         <artifactId>phoenix</artifactId>
-        <version>1.2.0</version>
+        <version>2.0.0</version>
     </dependency>
     ...
   </dependencies>

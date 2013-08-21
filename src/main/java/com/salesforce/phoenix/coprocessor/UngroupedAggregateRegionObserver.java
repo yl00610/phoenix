@@ -52,6 +52,7 @@ import com.salesforce.phoenix.exception.ValueTypeIncompatibleException;
 import com.salesforce.phoenix.expression.Expression;
 import com.salesforce.phoenix.expression.ExpressionType;
 import com.salesforce.phoenix.expression.aggregator.*;
+import com.salesforce.phoenix.join.HashJoinInfo;
 import com.salesforce.phoenix.query.QueryConstants;
 import com.salesforce.phoenix.query.QueryServicesOptions;
 import com.salesforce.phoenix.schema.*;
@@ -93,6 +94,39 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
         if (isUngroupedAgg == null) {
             return s;
         }
+        byte[] upgradeTo20 = scan.getAttribute(SchemaUtil.UPGRADE_TO_2_0);
+        /* Hack to upgrade data to new 2.0 format */
+        if (upgradeTo20 != null) {
+            int nColumns = Bytes.toInt(upgradeTo20);
+            SchemaUtil.upgradeTo2IfNecessary(c.getEnvironment().getRegion(), nColumns);
+            return new BaseRegionScanner() {
+                @Override
+                public HRegionInfo getRegionInfo() {
+                    return s.getRegionInfo();
+                }
+                @Override
+                public boolean isFilterDone() {
+                    return true;
+                }
+                @Override
+                public void close() throws IOException {
+                    s.close();
+                }
+                @Override
+                public boolean next(List<KeyValue> results) throws IOException {
+                    return false;
+                }
+            };
+        }
+        
+        final ScanProjector p = ScanProjector.deserializeProjectorFromScan(scan);
+        final HashJoinInfo j = HashJoinInfo.deserializeHashJoinFromScan(scan);
+        RegionScanner theScanner = s;
+        if (p != null && j != null)  {
+            theScanner = new HashJoinRegionScanner(s, p, j, ScanUtil.getTenantId(scan), c.getEnvironment().getConfiguration());
+        }
+        final RegionScanner innerScanner = theScanner;
+        
         PTable projectedTable = null;
         List<Expression> selectExpressions = null;
         byte[] upsertSelectTable = scan.getAttribute(UPSERT_SELECT_TABLE);
@@ -137,7 +171,7 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
         	logger.info("Starting ungrouped coprocessor scan " + scan);
         }
         long rowCount = 0;
-        MultiVersionConsistencyControl.setThreadReadPoint(s.getMvccReadPoint());
+        MultiVersionConsistencyControl.setThreadReadPoint(innerScanner.getMvccReadPoint());
         region.startRegionOperation();
         try {
             do {
@@ -145,7 +179,7 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
                 // Results are potentially returned even when the return value of s.next is false
                 // since this is an indication of whether or not there are more values after the
                 // ones returned
-                hasMore = s.nextRaw(results, null) && !s.isFilterDone();
+                hasMore = innerScanner.nextRaw(results, null) && !innerScanner.isFilterDone();
                 if (!results.isEmpty()) {
                 	rowCount++;
                     result.setKeyValues(results);
@@ -160,28 +194,42 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
                         } else if (isUpsert) {
                             Arrays.fill(values, null);
                             int i = 0;
+                            List<PColumn> projectedColumns = projectedTable.getColumns();
                             for (; i < projectedTable.getPKColumns().size(); i++) {
-                                if (selectExpressions.get(i).evaluate(result, ptr)) {
+                                Expression expression = selectExpressions.get(i);
+                                if (expression.evaluate(result, ptr)) {
                                     values[i] = ptr.copyBytes();
+                                    // If ColumnModifier from expression in SELECT doesn't match the
+                                    // column being projected into then invert the bits.
+                                    if (expression.getColumnModifier() != projectedColumns.get(i).getColumnModifier()) {
+                                        ColumnModifier.SORT_DESC.apply(values[i], 0, values[i], 0, values[i].length);
+                                    }
                                 }
                             }
                             projectedTable.newKey(ptr, values);
                             PRow row = projectedTable.newRow(ts, ptr);
-                            for (; i < projectedTable.getColumns().size(); i++) {
-                                if (selectExpressions.get(i).evaluate(result, ptr)) {
-                                    PColumn column = projectedTable.getColumns().get(i);
+                            for (; i < projectedColumns.size(); i++) {
+                                Expression expression = selectExpressions.get(i);
+                                if (expression.evaluate(result, ptr)) {
+                                    PColumn column = projectedColumns.get(i);
                                     byte[] bytes = ptr.copyBytes();
+                                    Object value = expression.getDataType().toObject(bytes, column.getColumnModifier());
+                                    // If ColumnModifier from expression in SELECT doesn't match the
+                                    // column being projected into then invert the bits.
+                                    if (expression.getColumnModifier() != column.getColumnModifier()) {
+                                        ColumnModifier.SORT_DESC.apply(bytes, 0, bytes, 0, bytes.length);
+                                    }
                                     // We are guaranteed that the two column will have the same type.
                                     if (!column.getDataType().isSizeCompatible(column.getDataType(),
-                                            null, bytes,
-                                            null, column.getMaxLength(), 
-                                            null, column.getScale())) {
+                                            value, bytes,
+                                            expression.getMaxLength(), column.getMaxLength(), 
+                                            expression.getScale(), column.getScale())) {
                                         throw new ValueTypeIncompatibleException(column.getDataType(),
                                                 column.getMaxLength(), column.getScale());
                                     }
-                                    bytes = column.getDataType().coerceBytes(bytes, null, column.getDataType(),
-                                            null, null, column.getMaxLength(), column.getScale());
-                                    row.setValue(projectedTable.getColumns().get(i), bytes);
+                                    bytes = column.getDataType().coerceBytes(bytes, value, expression.getDataType(),
+                                            expression.getMaxLength(), expression.getScale(), column.getMaxLength(), column.getScale());
+                                    row.setValue(column, bytes);
                                 }
                             }
                             for (Mutation mutation : row.toRowMutations()) {
@@ -230,6 +278,7 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
                 }
             } while (hasMore);
         } finally {
+            innerScanner.close();
             region.closeRegionOperation();
         }
         
@@ -254,7 +303,7 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
 
             @Override
             public HRegionInfo getRegionInfo() {
-                return s.getRegionInfo();
+                return innerScanner.getRegionInfo();
             }
 
             @Override
@@ -264,7 +313,7 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
 
             @Override
             public void close() throws IOException {
-                s.close();
+                innerScanner.close();
             }
 
             @Override

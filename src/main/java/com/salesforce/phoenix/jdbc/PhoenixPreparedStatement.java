@@ -22,6 +22,7 @@ import java.sql.*;
 import java.sql.Date;
 import java.util.*;
 
+import com.salesforce.phoenix.compile.QueryPlan;
 import com.salesforce.phoenix.compile.StatementPlan;
 import com.salesforce.phoenix.schema.PDataType;
 import com.salesforce.phoenix.util.SQLCloseable;
@@ -74,7 +75,7 @@ public class PhoenixPreparedStatement extends PhoenixStatement implements Prepar
     }
 
     @Override
-    protected List<Object> getParameters() {
+    public List<Object> getParameters() {
         return parameters;
     }
 
@@ -89,6 +90,12 @@ public class PhoenixPreparedStatement extends PhoenixStatement implements Prepar
         throwIfUnboundParameters();
         return statement.executeQuery();
     }
+
+    public QueryPlan optimizeQuery() throws SQLException {
+        throwIfUnboundParameters();
+        return (QueryPlan)statement.optimizePlan();
+    }
+
 
     @Override
     public int executeUpdate() throws SQLException {
@@ -175,13 +182,12 @@ public class PhoenixPreparedStatement extends PhoenixStatement implements Prepar
 
     @Override
     public void setBoolean(int parameterIndex, boolean x) throws SQLException {
-        // TODO: need type info for parameters to support this
-        throw new SQLFeatureNotSupportedException();
+        parameters.set(parameterIndex - 1, x);
     }
 
     @Override
     public void setByte(int parameterIndex, byte x) throws SQLException {
-        throw new SQLFeatureNotSupportedException();
+        parameters.set(parameterIndex - 1, x);
     }
 
     @Override
@@ -227,12 +233,14 @@ public class PhoenixPreparedStatement extends PhoenixStatement implements Prepar
 
     @Override
     public void setDouble(int parameterIndex, double x) throws SQLException {
-        parameters.set(parameterIndex - 1, BigDecimal.valueOf(x));
+//        parameters.set(parameterIndex - 1, BigDecimal.valueOf(x));
+        parameters.set(parameterIndex - 1, x);
     }
 
     @Override
     public void setFloat(int parameterIndex, float x) throws SQLException {
-        parameters.set(parameterIndex - 1, BigDecimal.valueOf(x));
+//        parameters.set(parameterIndex - 1, BigDecimal.valueOf(x));
+        parameters.set(parameterIndex - 1, x);
     }
 
     @Override
@@ -320,7 +328,7 @@ public class PhoenixPreparedStatement extends PhoenixStatement implements Prepar
 
     @Override
     public void setShort(int parameterIndex, short x) throws SQLException {
-        parameters.set(parameterIndex - 1, Integer.valueOf(x));
+        parameters.set(parameterIndex - 1, x);
     }
 
     @Override

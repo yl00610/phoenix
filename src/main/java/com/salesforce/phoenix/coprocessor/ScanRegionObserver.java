@@ -46,6 +46,7 @@ import com.salesforce.phoenix.cache.GlobalCache;
 import com.salesforce.phoenix.cache.TenantCache;
 import com.salesforce.phoenix.expression.OrderByExpression;
 import com.salesforce.phoenix.iterate.*;
+import com.salesforce.phoenix.join.HashJoinInfo;
 import com.salesforce.phoenix.memory.MemoryManager.MemoryChunk;
 import com.salesforce.phoenix.schema.PDataType;
 import com.salesforce.phoenix.schema.tuple.Tuple;
@@ -67,10 +68,11 @@ public class ScanRegionObserver extends BaseScannerRegionObserver {
     public static final String NON_AGGREGATE_QUERY = "NonAggregateQuery";
     private static final String TOPN = "TopN";
 
-    public static void serializeIntoScan(Scan scan, int limit, List<OrderByExpression> orderByExpressions, int estimatedRowSize) {
+    public static void serializeIntoScan(Scan scan, int thresholdBytes, int limit, List<OrderByExpression> orderByExpressions, int estimatedRowSize) {
         ByteArrayOutputStream stream = new ByteArrayOutputStream(); // TODO: size?
         try {
             DataOutputStream output = new DataOutputStream(stream);
+            WritableUtils.writeVInt(output, thresholdBytes);
             WritableUtils.writeVInt(output, limit);
             WritableUtils.writeVInt(output, estimatedRowSize);
             WritableUtils.writeVInt(output, orderByExpressions.size());
@@ -97,6 +99,7 @@ public class ScanRegionObserver extends BaseScannerRegionObserver {
         ByteArrayInputStream stream = new ByteArrayInputStream(topN); // TODO: size?
         try {
             DataInputStream input = new DataInputStream(stream);
+            int thresholdBytes = WritableUtils.readVInt(input);
             int limit = WritableUtils.readVInt(input);
             int estimatedRowSize = WritableUtils.readVInt(input);
             int size = WritableUtils.readVInt(input);
@@ -107,7 +110,7 @@ public class ScanRegionObserver extends BaseScannerRegionObserver {
                 orderByExpressions.add(orderByExpression);
             }
             ResultIterator inner = new RegionScannerResultIterator(s);
-            return new OrderedResultIterator(inner, orderByExpressions, limit, estimatedRowSize);
+            return new OrderedResultIterator(inner, orderByExpressions, thresholdBytes, limit >= 0 ? limit : null, estimatedRowSize);
         } catch (IOException e) {
             throw new RuntimeException(e);
         } finally {
@@ -126,12 +129,22 @@ public class ScanRegionObserver extends BaseScannerRegionObserver {
         if (isScanQuery == null || Bytes.compareTo(PDataType.FALSE_BYTES, isScanQuery) == 0) {
             return s;
         }
+        
+        final ScanProjector p = ScanProjector.deserializeProjectorFromScan(scan);
+        final HashJoinInfo j = HashJoinInfo.deserializeHashJoinFromScan(scan);
         final OrderedResultIterator iterator = deserializeFromScan(scan,s);
-        if (iterator == null) {
-            return getWrappedScanner(c, s);
+        final ImmutableBytesWritable tenantId = ScanUtil.getTenantId(scan);
+        
+        RegionScanner innerScanner = s;
+        if (p != null || j != null) {
+            innerScanner = new HashJoinRegionScanner(s, p, j, tenantId, c.getEnvironment().getConfiguration());
         }
         
-        return getTopNScanner(c,s, iterator, ScanUtil.getTenantId(scan));
+        if (iterator == null) {
+            return getWrappedScanner(c, innerScanner);
+        }
+        
+        return getTopNScanner(c, innerScanner, iterator, tenantId);
     }
     
     /**

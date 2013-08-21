@@ -29,11 +29,9 @@ import org.junit.Test;
 
 import com.salesforce.phoenix.query.ConnectionQueryServices;
 import com.salesforce.phoenix.query.QueryConstants;
-import com.salesforce.phoenix.schema.AmbiguousColumnException;
+import com.salesforce.phoenix.schema.ColumnAlreadyExistsException;
 import com.salesforce.phoenix.schema.ColumnFamilyNotFoundException;
 import com.salesforce.phoenix.util.SchemaUtil;
-import com.salesforce.phoenix.exception.*;
-import org.apache.hadoop.hbase.regionserver.*;
 
 /**
  * Basic tests for Phoenix dynamic upserting
@@ -50,7 +48,7 @@ public class DynamicColumnTest extends BaseClientMangedTimeTest {
 
     @BeforeClass
     public static void doBeforeTestSetup() throws Exception {
-        HBaseAdmin admin = new HBaseAdmin(driver.getQueryServices().getConfig());
+        HBaseAdmin admin = driver.getConnectionQueryServices(getUrl(), TEST_PROPERTIES).getAdmin();
         try {
             try {
                 admin.disableTable(HBASE_DYNAMIC_COLUMNS_BYTES);
@@ -172,7 +170,7 @@ public class DynamicColumnTest extends BaseClientMangedTimeTest {
     /**
      * Test an upsert of prexisting schema defined columns and dynamic ones with different datatypes
      */
-    @Test(expected = AmbiguousColumnException.class)
+    @Test(expected = ColumnAlreadyExistsException.class)
     public void testAmbiguousStaticSelect() throws Exception {
         String upsertquery = "Select * FROM HBASE_DYNAMIC_COLUMNS(A.F1V1 INTEGER)";
         String url = PHOENIX_JDBC_URL + ";";
@@ -180,7 +178,7 @@ public class DynamicColumnTest extends BaseClientMangedTimeTest {
         Connection conn = DriverManager.getConnection(url, props);
         try {
             PreparedStatement statement = conn.prepareStatement(upsertquery);
-            ResultSet rs = statement.executeQuery();
+            statement.executeQuery();
         } finally {
             conn.close();
         }
@@ -197,7 +195,7 @@ public class DynamicColumnTest extends BaseClientMangedTimeTest {
         Connection conn = DriverManager.getConnection(url, props);
         try {
             PreparedStatement statement = conn.prepareStatement(upsertquery);
-            ResultSet rs = statement.executeQuery();
+            statement.executeQuery();
         } finally {
             conn.close();
         }

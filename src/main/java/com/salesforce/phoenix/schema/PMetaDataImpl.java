@@ -30,7 +30,6 @@ package com.salesforce.phoenix.schema;
 import java.sql.SQLException;
 import java.util.*;
 
-
 import com.google.common.collect.*;
 import com.salesforce.phoenix.query.QueryConstants;
 
@@ -78,14 +77,29 @@ public class PMetaDataImpl implements PMetaData {
         } else {
             tables = Maps.newHashMap(schema.getTables());
         }
-        tables.put(table.getName().getString(), table);
+        PTable oldTable = tables.put(table.getName().getString(), table);
+        if (table.getDataTableName() != null) { // Upsert new index table into parent data table list
+            String parentTableName = table.getDataTableName().getString();
+            PTable parentTable = tables.get(parentTableName);
+            List<PTable> oldIndexes = parentTable.getIndexes();
+            List<PTable> newIndexes = Lists.newArrayListWithExpectedSize(oldIndexes.size() + 1);
+            newIndexes.addAll(oldIndexes);
+            if (oldTable != null) {
+                newIndexes.remove(oldTable);
+            }
+            newIndexes.add(table);
+            tables.put(parentTableName, PTableImpl.makePTable(parentTable, table.getTimeStamp(), newIndexes));
+        }
+        for (PTable index : table.getIndexes()) {
+            tables.put(index.getName().getString(), index);
+        }
         schema = new PSchemaImpl(schemaName, tables);
         schemas.put(schemaName, schema);
         return new PMetaDataImpl(schemas);
     }
 
     @Override
-    public PMetaData addColumn(String schemaName, String tableName, List<PColumn> newColumns, long tableSeqNum, long tableTimeStamp) throws SQLException {
+    public PMetaData addColumn(String schemaName, String tableName, List<PColumn> newColumns, long tableTimeStamp, long tableSeqNum, boolean isImmutableRows) throws SQLException {
         Map<String,PSchema> schemas = new HashMap<String,PSchema>(metaData);
         PSchema schema = getSchema(schemaName);
         PTable table = schema.getTable(tableName);
@@ -93,7 +107,7 @@ public class PMetaDataImpl implements PMetaData {
         columns.addAll(table.getColumns());
         columns.addAll(newColumns);
         Map<String,PTable> tables = Maps.newHashMap(schema.getTables());
-        PTable newTable = new PTableImpl(table.getName(), table.getType(), tableSeqNum, tableTimeStamp, table.getPKName(), table.getBucketNum(), columns);
+        PTable newTable = PTableImpl.makePTable(table, tableTimeStamp, tableSeqNum, columns, isImmutableRows);
         tables.put(tableName, newTable);
         schema = new PSchemaImpl(schemaName, tables);
         schemas.put(schema.getName(), schema);
@@ -111,8 +125,15 @@ public class PMetaDataImpl implements PMetaData {
         Map<String,PTable> tables;
         Map<String,PSchema> schemas = new HashMap<String,PSchema>(metaData);
         tables = Maps.newHashMap(schema.getTables());
-        if (tables.remove(tableName) == null) {
+        PTable table;
+        if ((table=tables.remove(tableName)) == null) {
             throw new TableNotFoundException(schemaName, tableName);
+        } else {
+            for (PTable index : table.getIndexes()) {
+                if (tables.remove(index.getName().getString()) == null) {
+                    throw new TableNotFoundException(schemaName, index.getName().getString());
+                }
+            }
         }
         schema = new PSchemaImpl(schema.getName(), tables);
         schemas.put(schema.getName(), schema);
@@ -120,7 +141,7 @@ public class PMetaDataImpl implements PMetaData {
     }
     
     @Override
-    public PMetaData removeColumn(String schemaName, String tableName, String familyName, String columnName, long tableSeqNum, long tableTimeStamp) throws SQLException {
+    public PMetaData removeColumn(String schemaName, String tableName, String familyName, String columnName, long tableTimeStamp, long tableSeqNum) throws SQLException {
         PSchema schema = getSchema(schemaName);
         Map<String,PSchema> schemas = new HashMap<String,PSchema>(metaData);
         PTable table = schema.getTable(tableName);
@@ -142,7 +163,7 @@ public class PMetaDataImpl implements PMetaData {
         }
         
         Map<String,PTable> tables = Maps.newHashMap(schema.getTables());
-        PTable newTable = new PTableImpl(table.getName(), table.getType(), tableSeqNum, tableTimeStamp, table.getPKName(), table.getBucketNum(), columns);
+        PTable newTable = PTableImpl.makePTable(table, tableTimeStamp, tableSeqNum, columns);
         tables.put(tableName, newTable);
         schema = new PSchemaImpl(schemaName, tables);
         schemas.put(schema.getName(), schema);

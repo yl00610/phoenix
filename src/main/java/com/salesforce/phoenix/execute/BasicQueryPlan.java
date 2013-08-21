@@ -34,11 +34,15 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 
 import com.salesforce.phoenix.compile.*;
+import com.salesforce.phoenix.compile.GroupByCompiler.GroupBy;
 import com.salesforce.phoenix.compile.OrderByCompiler.OrderBy;
+import com.salesforce.phoenix.iterate.ParallelIterators.ParallelIteratorFactory;
 import com.salesforce.phoenix.jdbc.PhoenixConnection;
+import com.salesforce.phoenix.parse.FilterableStatement;
 import com.salesforce.phoenix.query.*;
-import com.salesforce.phoenix.schema.TableRef;
+import com.salesforce.phoenix.schema.*;
 import com.salesforce.phoenix.util.ScanUtil;
+import com.salesforce.phoenix.util.SchemaUtil;
 
 
 
@@ -50,32 +54,47 @@ import com.salesforce.phoenix.util.ScanUtil;
  * @since 0.1
  */
 public abstract class BasicQueryPlan implements QueryPlan {
-    protected final TableRef table;
+    protected final TableRef tableRef;
     protected final StatementContext context;
+    protected final FilterableStatement statement;
     protected final RowProjector projection;
     protected final ParameterMetaData paramMetaData;
     protected final Integer limit;
     protected final OrderBy orderBy;
+    protected final GroupBy groupBy;
+    protected final ParallelIteratorFactory parallelIteratorFactory;
 
     private Scanner scanner;
 
-    protected BasicQueryPlan(StatementContext context, TableRef table, RowProjector projection, ParameterMetaData paramMetaData, Integer limit, OrderBy orderBy) {
+    protected BasicQueryPlan(
+            StatementContext context, FilterableStatement statement, TableRef table,
+            RowProjector projection, ParameterMetaData paramMetaData, Integer limit, OrderBy orderBy,
+            GroupBy groupBy, ParallelIteratorFactory parallelIteratorFactory) {
         this.context = context;
-        this.table = table;
+        this.statement = statement;
+        this.tableRef = table;
         this.projection = projection;
         this.paramMetaData = paramMetaData;
         this.limit = limit;
         this.orderBy = orderBy;
+        this.groupBy = groupBy;
+        this.parallelIteratorFactory = parallelIteratorFactory;
     }
 
+    @Override
+    public GroupBy getGroupBy() {
+        return groupBy;
+    }
+
+    
     @Override
     public OrderBy getOrderBy() {
         return orderBy;
     }
 
     @Override
-    public TableRef getTable() {
-        return table;
+    public TableRef getTableRef() {
+        return tableRef;
     }
 
     @Override
@@ -95,6 +114,13 @@ public abstract class BasicQueryPlan implements QueryPlan {
         return childServices;
     }
 
+    protected void projectEmptyKeyValue() {
+        Scan scan = context.getScan();
+        PTable table = tableRef.getTable();
+        if (!projection.isProjectEmptyKeyValue() && table.getType() != PTableType.VIEW) {
+                scan.addColumn(SchemaUtil.getEmptyColumnFamily(table.getColumnFamilies()), QueryConstants.EMPTY_COLUMN_BYTES);
+        }
+    }
 //    /**
 //     * Sets up an id used to do round robin queue processing on the server
 //     * @param scan
@@ -129,7 +155,7 @@ public abstract class BasicQueryPlan implements QueryPlan {
     private Scanner newScanner() throws SQLException {
         ConnectionQueryServices services = getConnectionQueryServices(context.getConnection().getQueryServices());
         if (context.getScanRanges() == ScanRanges.NOTHING) { // is degenerate
-            scanner = new DegenerateScanner(table, getProjector());
+            scanner = new DegenerateScanner(tableRef, getProjector());
         } else {
             scanner = newScanner(services);
         }
@@ -141,6 +167,7 @@ public abstract class BasicQueryPlan implements QueryPlan {
         return paramMetaData;
     }
 
+    @Override
     public StatementContext getContext() {
         return context;
     }

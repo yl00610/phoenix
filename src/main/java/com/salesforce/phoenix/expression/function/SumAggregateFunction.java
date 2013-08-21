@@ -73,6 +73,16 @@ public class SumAggregateFunction extends DelegateConstantToCountAggregateFuncti
         switch( type ) {
             case DECIMAL:
                 return new DecimalSumAggregator(columnModifier);
+            case UNSIGNED_DOUBLE:
+            case UNSIGNED_FLOAT:
+            case DOUBLE:
+            case FLOAT:
+                return new DoubleSumAggregator(columnModifier) {
+                    @Override
+                    protected PDataType getInputDataType() {
+                        return type;
+                    }
+                };
             default:
                 return new NumberSumAggregator(columnModifier) {
                     @Override
@@ -93,6 +103,8 @@ public class SumAggregateFunction extends DelegateConstantToCountAggregateFuncti
                 return new DecimalSumAggregator(null);
             case LONG:
                 return new LongSumAggregator(null);
+            case DOUBLE:
+                return new DoubleSumAggregator(null);
             default:
                 throw new IllegalStateException("Unexpected SUM type: " + getDataType());
         }
@@ -121,7 +133,17 @@ public class SumAggregateFunction extends DelegateConstantToCountAggregateFuncti
 
     @Override
     public PDataType getDataType() {
-        return super.getDataType() == PDataType.DECIMAL ? PDataType.DECIMAL : PDataType.LONG;
+        switch(super.getDataType()) {
+        case DECIMAL:
+            return PDataType.DECIMAL;
+        case UNSIGNED_FLOAT:
+        case UNSIGNED_DOUBLE:
+        case FLOAT:
+        case DOUBLE:
+            return PDataType.DOUBLE;
+        default:
+            return PDataType.LONG;
+        }
     }
 
     @Override

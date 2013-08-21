@@ -33,7 +33,6 @@ import java.util.List;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.io.Writable;
 
-import com.salesforce.phoenix.parse.ColumnDef;
 import com.salesforce.phoenix.schema.stat.PTableStats;
 
 
@@ -44,6 +43,8 @@ import com.salesforce.phoenix.schema.stat.PTableStats;
  * @since 0.1
  */
 public interface PTable extends Writable {
+    public static final long INITIAL_SEQ_NUM = 0;
+    public static final String IS_IMMUTABLE_ROWS_PROP_NAME = "IMMUTABLE_ROWS";
 
     long getTimeStamp();
     long getSequenceNumber();
@@ -57,7 +58,7 @@ public interface PTable extends Writable {
      */
     PTableType getType();
 
-    String getPKName();
+    PName getPKName();
 
     /**
      * Get the PK columns ordered by position.
@@ -158,5 +159,23 @@ public interface PTable extends Writable {
      * @return number of buckets used by this table for salting, or null if salting is not used.
      */
     Integer getBucketNum();
-   
+
+    /**
+     * Return the list of indexes defined on this table.
+     * @return the list of indexes.
+     */
+    List<PTable> getIndexes();
+
+    /**
+     * For a table of index type, return the state of the table.
+     * @return the state of the index.
+     */
+    PIndexState getIndexState();
+
+    /**
+     * For a table of index type, return the name of the data table.
+     * @return the name of the data table that this index is on.
+     */
+    PName getDataTableName();
+    boolean isImmutableRows();
 }

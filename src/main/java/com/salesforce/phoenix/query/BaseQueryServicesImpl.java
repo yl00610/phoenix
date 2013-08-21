@@ -29,11 +29,11 @@ package com.salesforce.phoenix.query;
 
 import java.util.concurrent.ExecutorService;
 
-import org.apache.hadoop.conf.Configuration;
-
 import com.salesforce.phoenix.job.JobManager;
 import com.salesforce.phoenix.memory.GlobalMemoryManager;
 import com.salesforce.phoenix.memory.MemoryManager;
+import com.salesforce.phoenix.optimize.QueryOptimizer;
+import com.salesforce.phoenix.util.ReadOnlyProps;
 
 
 
@@ -47,10 +47,10 @@ import com.salesforce.phoenix.memory.MemoryManager;
 public abstract class BaseQueryServicesImpl implements QueryServices {
     private final ExecutorService executor;
     private final MemoryManager memoryManager;
-    private final Configuration config;
+    private final ReadOnlyProps props;
+    private final QueryOptimizer queryOptimizer;
     
     public BaseQueryServicesImpl(QueryServicesOptions options) {
-        this.config = options.getConfiguration();
         this.executor =  JobManager.createThreadPoolExec(
                 options.getKeepAliveMs(), 
                 options.getThreadPoolSize(), 
@@ -58,6 +58,8 @@ public abstract class BaseQueryServicesImpl implements QueryServices {
         this.memoryManager = new GlobalMemoryManager(
                 Runtime.getRuntime().totalMemory() * options.getMaxMemoryPerc() / 100,
                 options.getMaxMemoryWaitMs());
+        this.props = options.getProps();
+        this.queryOptimizer = new QueryOptimizer(this);
     }
     
     @Override
@@ -71,11 +73,16 @@ public abstract class BaseQueryServicesImpl implements QueryServices {
     }
 
     @Override
-    public Configuration getConfig() {
-        return config;
+    public final ReadOnlyProps getProps() {
+        return props;
     }
 
     @Override
     public void close() {
+    }
+
+    @Override
+    public QueryOptimizer getOptimizer() {
+        return queryOptimizer;
     }   
 }

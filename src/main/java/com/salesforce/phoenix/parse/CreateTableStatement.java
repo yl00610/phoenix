@@ -36,7 +36,7 @@ import com.google.common.collect.*;
 import com.salesforce.phoenix.jdbc.PhoenixDatabaseMetaData;
 import com.salesforce.phoenix.schema.PTableType;
 
-public class CreateTableStatement implements SQLStatement {
+public class CreateTableStatement implements BindableStatement {
     private final TableName tableName;
     private final PTableType tableType;
     private final List<ColumnDef> columns;
@@ -44,18 +44,16 @@ public class CreateTableStatement implements SQLStatement {
     private final List<ParseNode> splitNodes;
     private final int bindCount;
     private final ListMultimap<String,Pair<String,Object>> props;
-    private final boolean isView;
     private final boolean ifNotExists;
     
-    protected CreateTableStatement(TableName tableName, ListMultimap<String,Pair<String,Object>> props, List<ColumnDef> columns, PrimaryKeyConstraint pkConstraint, List<ParseNode> splitNodes, boolean isView, boolean ifNotExists, int bindCount) {
+    protected CreateTableStatement(TableName tableName, ListMultimap<String,Pair<String,Object>> props, List<ColumnDef> columns, PrimaryKeyConstraint pkConstraint, List<ParseNode> splitNodes, PTableType tableType, boolean ifNotExists, int bindCount) {
         this.tableName = tableName;
         this.props = props == null ? ImmutableListMultimap.<String,Pair<String,Object>>of() : props;
-        this.tableType = PhoenixDatabaseMetaData.TYPE_SCHEMA.equals(tableName.getSchemaName()) ? PTableType.SYSTEM : isView ? PTableType.VIEW : PTableType.USER;
+        this.tableType = PhoenixDatabaseMetaData.TYPE_SCHEMA.equals(tableName.getSchemaName()) ? PTableType.SYSTEM : tableType;
         this.columns = ImmutableList.copyOf(columns);
-        this.pkConstraint = pkConstraint;
+        this.pkConstraint = pkConstraint == null ? PrimaryKeyConstraint.EMPTY : pkConstraint;
         this.splitNodes = splitNodes == null ? Collections.<ParseNode>emptyList() : ImmutableList.copyOf(splitNodes);
         this.bindCount = bindCount;
-        this.isView = isView;
         this.ifNotExists = ifNotExists;
     }
     
@@ -82,10 +80,6 @@ public class CreateTableStatement implements SQLStatement {
 
     public ListMultimap<String,Pair<String,Object>> getProps() {
         return props;
-    }
-
-    public boolean isView() {
-        return isView;
     }
 
     public boolean ifNotExists() {

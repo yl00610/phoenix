@@ -46,9 +46,16 @@ public class StringUtil {
     public static final byte[] MOD_SPACE_UTF8 = new byte[ColumnModifier.values().length];
     static {
         for (ColumnModifier columnModifier : ColumnModifier.values()) {
-            MOD_SPACE_UTF8[columnModifier.ordinal()] = columnModifier.apply(new byte[] {SPACE_UTF8}, new byte[1], 0, 1)[0];
+            MOD_SPACE_UTF8[columnModifier.ordinal()] = columnModifier.apply(new byte[] {SPACE_UTF8}, 0, new byte[1], 0, 1)[0];
         }
     }
+
+    public final static char SINGLE_CHAR_WILDCARD = '?';
+    public final static char SINGLE_CHAR_LIKE = '_';
+    public final static char MULTI_CHAR_WILDCARD = '*';
+    public final static char MULTI_CHAR_LIKE = '%';
+    public final static String[] LIKE_ESCAPE_SEQS = new String[]{"\\"+SINGLE_CHAR_LIKE, "\\"+MULTI_CHAR_LIKE};
+    public final static String[] LIKE_UNESCAPED_SEQS = new String[]{""+SINGLE_CHAR_LIKE, ""+MULTI_CHAR_LIKE};
     
 
     private StringUtil() {
@@ -210,5 +217,9 @@ public class StringUtil {
             return ByteUtil.EMPTY_BYTE_ARRAY;
         }
         return Bytes.toBytes(input);
+    }
+
+    public static String escapeLike(String s) {
+        return replace(s, LIKE_UNESCAPED_SEQS, LIKE_ESCAPE_SEQS);
     }
 }

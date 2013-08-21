@@ -44,7 +44,7 @@ public class HavingCompiler {
     private HavingCompiler() {
     }
 
-    public static Expression getExpression(SelectStatement statement, StatementContext context, GroupBy groupBy) throws SQLException {
+    public static Expression compile(StatementContext context, SelectStatement statement, GroupBy groupBy) throws SQLException {
         ParseNode having = statement.getHaving();
         if (having == null) {
             return null;
@@ -60,11 +60,10 @@ public class HavingCompiler {
         if (!expressionBuilder.isAggregate()) {
             throw new SQLExceptionInfo.Builder(SQLExceptionCode.ONLY_AGGREGATE_IN_HAVING_CLAUSE).build().buildException();
         }
-        context.setAggregate(true);
         return expression;
     }
 
-    public static SelectStatement moveToWhereClause(StatementContext context, SelectStatement statement, GroupBy groupBy) throws SQLException {
+    public static SelectStatement rewrite(StatementContext context, SelectStatement statement, GroupBy groupBy) throws SQLException {
         ParseNode having = statement.getHaving();
         if (having == null) {
             return statement;
@@ -187,8 +186,8 @@ public class HavingCompiler {
         }
 
         @Override
-        public Void visit(ColumnParseNode colNode) throws SQLException {
-            ColumnRef ref = context.getResolver().resolveColumn(colNode);
+        public Void visit(ColumnParseNode node) throws SQLException {
+            ColumnRef ref = context.getResolver().resolveColumn(node.getSchemaName(), node.getTableName(), node.getName());
             boolean isAggregateColumn = groupBy.getExpressions().indexOf(ref.newColumnExpression()) >= 0;
             if (hasOnlyAggregateColumns == null) {
                 hasOnlyAggregateColumns = isAggregateColumn;
@@ -216,6 +215,11 @@ public class HavingCompiler {
 
         @Override
         public boolean visitEnter(DivideParseNode node) throws SQLException {
+            return true;
+        }
+
+        @Override
+        public boolean visitEnter(BetweenParseNode node) throws SQLException {
             return true;
         }
     }

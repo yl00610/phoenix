@@ -45,6 +45,7 @@ import org.junit.Test;
 
 import com.salesforce.phoenix.coprocessor.GroupedAggregateRegionObserver;
 import com.salesforce.phoenix.coprocessor.UngroupedAggregateRegionObserver;
+import com.salesforce.phoenix.exception.SQLExceptionCode;
 import com.salesforce.phoenix.jdbc.PhoenixConnection;
 import com.salesforce.phoenix.jdbc.PhoenixDatabaseMetaData;
 import com.salesforce.phoenix.join.HashJoiningRegionObserver;
@@ -65,7 +66,7 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
         props.setProperty(PhoenixRuntime.CURRENT_SCN_ATTRIB, Long.toString(ts + 5));
         Connection conn = DriverManager.getConnection(PHOENIX_JDBC_URL, props);
         DatabaseMetaData dbmd = conn.getMetaData();
-        String aTableName = TestUtil.ATABLE_NAME;
+        String aTableName = StringUtil.escapeLike(TestUtil.ATABLE_NAME);
         String aSchemaName = TestUtil.ATABLE_SCHEMA_NAME;
         ResultSet rs = dbmd.getTables(null, aSchemaName, aTableName, null);
         assertTrue(rs.next());
@@ -92,6 +93,13 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
         assertEquals(CUSTOM_ENTITY_DATA_SCHEMA_NAME, rs.getString("TABLE_SCHEM"));
         assertEquals(CUSTOM_ENTITY_DATA_NAME, rs.getString("TABLE_NAME"));
         assertEquals(PTableType.USER.getSerializedValue(), rs.getString("TABLE_TYPE"));
+
+        rs = dbmd.getTables(null, CUSTOM_ENTITY_DATA_SCHEMA_NAME, CUSTOM_ENTITY_DATA_NAME, null);
+        assertTrue(rs.next());
+        assertEquals(rs.getString("TABLE_SCHEM"),CUSTOM_ENTITY_DATA_SCHEMA_NAME);
+        assertEquals(rs.getString("TABLE_NAME"),CUSTOM_ENTITY_DATA_NAME);
+        assertEquals(PTableType.USER.getSerializedValue(), rs.getString("TABLE_TYPE"));
+        assertFalse(rs.next());
         
         try {
             rs.getString("RANDOM_COLUMN_NAME");
@@ -477,7 +485,7 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
         byte[] cfC = Bytes.toBytes("c");
         byte[][] familyNames = new byte[][] {cfB, cfC};
         byte[] htableName = SchemaUtil.getTableName(tableName);
-        HBaseAdmin admin = new HBaseAdmin(pconn.getQueryServices().getConfig());
+        HBaseAdmin admin = pconn.getQueryServices().getAdmin();
         try {
             admin.disableTable(htableName);
             admin.deleteTable(htableName);
@@ -556,7 +564,7 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
         byte[] cfC = Bytes.toBytes("c");
         byte[][] familyNames = new byte[][] {cfB, cfC};
         byte[] htableName = SchemaUtil.getTableName(tableName);
-        HBaseAdmin admin = new HBaseAdmin(pconn.getQueryServices().getConfig());
+        HBaseAdmin admin = pconn.getQueryServices().getAdmin();
         try {
             admin.disableTable(htableName);
             admin.deleteTable(htableName);
@@ -611,7 +619,7 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
         createStmt = "create view " + MDTEST_NAME + 
         "   (id char(1) not null primary key,\n" + 
         "    b.col1 integer,\n" +
-        "    \"c\".col2 bigint)\n";
+        "    \"c\".col2 bigint) \n";
         // should be ok now
         conn1.createStatement().execute(createStmt);
         conn1.close();
@@ -638,6 +646,14 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
             } catch (ReadOnlyTableException e) {
                 // expected to fail b/c table is read-only
             }
+            try {
+                conn2.createStatement().execute("CREATE INDEX idx ON " + MDTEST_NAME + "(B.COL1)");
+                fail();
+            } catch (SQLException e) {
+                assertEquals(SQLExceptionCode.INDEX_ONLY_ON_IMMUTABLE_TABLE.getErrorCode(),e.getErrorCode());
+            }
+            conn2.createStatement().execute("ALTER TABLE " + MDTEST_NAME + " SET IMMUTABLE_ROWS=TRUE");
+            
             HTableInterface htable = conn2.getQueryServices().getTable(SchemaUtil.getTableName(MDTEST_NAME));
             Put put = new Put(Bytes.toBytes("0"));
             put.add(cfB, Bytes.toBytes("COL1"), ts+6, PDataType.INTEGER.toBytes(1));
@@ -645,8 +661,10 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
             htable.put(put);
             conn2.close();
             
-            props.setProperty(PhoenixRuntime.CURRENT_SCN_ATTRIB, Long.toString(ts + 7));
+            props.setProperty(PhoenixRuntime.CURRENT_SCN_ATTRIB, Long.toString(ts + 10));
             Connection conn7 = DriverManager.getConnection(PHOENIX_JDBC_URL, props);
+            // Should be ok b/c we've marked the view with IMMUTABLE_ROWS=true
+            conn7.createStatement().execute("CREATE INDEX idx ON " + MDTEST_NAME + "(B.COL1)");
             String select = "SELECT col1 FROM " + MDTEST_NAME + " WHERE col2=?";
             ps = conn7.prepareStatement(select);
             ps.setInt(1, 2);
@@ -655,8 +673,10 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
             assertEquals(1, rs.getInt(1));
             assertFalse(rs.next());
             
+            props.setProperty(PhoenixRuntime.CURRENT_SCN_ATTRIB, Long.toString(ts + 12));
+            Connection conn75 = DriverManager.getConnection(PHOENIX_JDBC_URL, props);
             String dropTable = "DROP TABLE " + MDTEST_NAME ;
-            ps = conn7.prepareStatement(dropTable);
+            ps = conn75.prepareStatement(dropTable);
             try {
                 ps.execute();
                 fail();
@@ -665,9 +685,24 @@ public class QueryDatabaseMetaDataTest extends BaseClientMangedTimeTest {
             }
     
             String dropView = "DROP VIEW " + MDTEST_NAME ;
-            ps = conn7.prepareStatement(dropView);
+            ps = conn75.prepareStatement(dropView);
             ps.execute();
-            conn7.close();
+            conn75.close();
+            
+            props.setProperty(PhoenixRuntime.CURRENT_SCN_ATTRIB, Long.toString(ts + 15));
+            Connection conn8 = DriverManager.getConnection(PHOENIX_JDBC_URL, props);
+            createStmt = "create view " + MDTEST_NAME + 
+                    "   (id char(1) not null primary key,\n" + 
+                    "    b.col1 integer,\n" +
+                    "    \"c\".col2 bigint) IMMUTABLE_ROWS=true\n";
+            // should be ok to create a view with IMMUTABLE_ROWS = true
+            conn8.createStatement().execute(createStmt);
+            conn8.close();
+            
+            props.setProperty(PhoenixRuntime.CURRENT_SCN_ATTRIB, Long.toString(ts + 20));
+            Connection conn9 = DriverManager.getConnection(PHOENIX_JDBC_URL, props);
+            conn9.createStatement().execute("CREATE INDEX idx ON " + MDTEST_NAME + "(B.COL1)");
+            
         } finally {
             HTableInterface htable = pconn.getQueryServices().getTable(SchemaUtil.getTableName(MDTEST_NAME));
             Delete delete = new Delete(Bytes.toBytes("0"));

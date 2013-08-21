@@ -31,8 +31,7 @@ import java.text.Format;
 import java.util.List;
 
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.filter.Filter;
-import org.apache.hadoop.hbase.filter.FilterList;
+import org.apache.hadoop.hbase.filter.*;
 
 import com.salesforce.phoenix.compile.GroupByCompiler.GroupBy;
 import com.salesforce.phoenix.compile.*;
@@ -94,19 +93,51 @@ public abstract class ExplainTable {
         
         Scan scan = context.getScan();
         Filter filter = scan.getFilter();
+        PageFilter pageFilter = null;
         if (filter != null) {
+            int offset = 0;
+            boolean hasFirstKeyOnlyFilter = false;
             String filterDesc = "";
             if (hasSkipScanFilter) {
                 if (filter instanceof FilterList) {
-                    FilterList filterList = (FilterList) filter;
-                    assert (filterList.getFilters().size() == 2);
-                    filterDesc = filterList.getFilters().get(1).toString();
+                    List<Filter> filterList = ((FilterList) filter).getFilters();
+                    if (filterList.get(0) instanceof FirstKeyOnlyFilter) {
+                        hasFirstKeyOnlyFilter = true;
+                        offset = 1;
+                    }
+                    if (filterList.size() > offset+1) {
+                        filterDesc = filterList.get(offset+1).toString();
+                        if (filterList.size() > offset+2) {
+                            pageFilter = (PageFilter) filterList.get(offset+2);
+                        }
+                    }
+                }
+            } else if (filter instanceof FilterList) {
+                List<Filter> filterList = ((FilterList) filter).getFilters();
+                if (filterList.get(0) instanceof FirstKeyOnlyFilter) {
+                    hasFirstKeyOnlyFilter = true;
+                    offset = 1;
+                }
+                if (filterList.size() > offset) {
+                    filterDesc = filterList.get(offset).toString();
+                    if (filterList.size() > offset+1) {
+                        pageFilter = (PageFilter) filterList.get(offset+1);
+                    }
                 }
             } else {
-                filterDesc = filter.toString();
+                if (filter instanceof FirstKeyOnlyFilter) {
+                    hasFirstKeyOnlyFilter = true;
+                } else {
+                    filterDesc = filter.toString();
+                }
             }
             if (filterDesc.length() > 0) {
-                planSteps.add("    SERVER FILTER BY " + filterDesc);
+                planSteps.add("    SERVER FILTER BY " + (hasFirstKeyOnlyFilter ? "FIRST KEY ONLY AND " : "") + filterDesc);
+            } else if (hasFirstKeyOnlyFilter) {
+                planSteps.add("    SERVER FILTER BY FIRST KEY ONLY");
+            }
+            if (pageFilter != null) {
+                planSteps.add("    SERVER " + pageFilter.getPageSize() + " ROW LIMIT");
             }
         }
         groupBy.explain(planSteps);
@@ -121,25 +152,10 @@ public abstract class ExplainTable {
         PDataType type = scanRanges.getSchema().getField(slotIndex).getType();
         ColumnModifier modifier = table.getTable().getPKColumns().get(slotIndex).getColumnModifier();
         if (modifier != null) {
-            range = modifier.apply(range, new byte[range.length], 0, range.length);
+            range = modifier.apply(range, 0, new byte[range.length], 0, range.length);
         }
         Format formatter = context.getConnection().getFormatter(type);
-        //Object value = type.toObject(ptr);
-        boolean isString = type.isCoercibleTo(PDataType.VARCHAR);
-        if (isString) buf.append('\''); // TODO: PDataType.toString(Object, Format) method?
-        Object o = type.toObject(range);
-        if (isString) {
-            String s = (String) o;
-            for (int i = 0; i < s.length() && s.charAt(i) != '\0'; i++) {
-                buf.append(s.charAt(i));
-            }
-        } else {
-            boolean isTime = type.isCoercibleTo(PDataType.DATE);
-            if (isTime) buf.append('\'');
-            buf.append(formatter == null ? o : formatter.format(o));
-            if (isTime) buf.append('\'');
-        }
-        if (isString) buf.append('\'');
+        buf.append(type.toStringLiteral(range, formatter));
     }
     
     private void appendKeyRange(StringBuilder buf, KeyRange range, int i) {

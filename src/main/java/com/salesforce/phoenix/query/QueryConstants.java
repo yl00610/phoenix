@@ -87,15 +87,15 @@ public interface QueryConstants {
     public static final PName DEFAULT_COLUMN_FAMILY_NAME = new PNameImpl(DEFAULT_COLUMN_FAMILY);
     public static final byte[] DEFAULT_COLUMN_FAMILY_BYTES = DEFAULT_COLUMN_FAMILY_NAME.getBytes();
     public static final String ALL_FAMILY_PROPERTIES_KEY = "";
-    public static final String SYSTEM_TABLE_PK_NAME = "pk";
-    
+    public static final PName SYSTEM_TABLE_PK_NAME = new PNameImpl("pk");
+
     public static final String CREATE_METADATA =
             "CREATE TABLE " + TYPE_SCHEMA + ".\"" + TYPE_TABLE + "\"(\n" +
             // PK columns
             TABLE_SCHEM_NAME + " VARCHAR NULL," +
             TABLE_NAME_NAME + " VARCHAR NOT NULL," +
             COLUMN_NAME + " VARCHAR NULL," + // null only for table row
-            TABLE_CAT_NAME + " VARCHAR NULL,\n" + // using for CF - ensures uniqueness for columns
+            TABLE_CAT_NAME + " VARCHAR NULL," + // using for CF - ensures uniqueness for columns
             // Table metadata (will be null for column rows)
             TABLE_TYPE_NAME + " CHAR(1)," +
             REMARKS_NAME + " VARCHAR," +
@@ -106,7 +106,6 @@ public interface QueryConstants {
             REF_GENERATION_NAME + " VARCHAR," +
             TABLE_SEQ_NUM + " BIGINT," +
             COLUMN_COUNT + " INTEGER," +
-            SALT_BUCKETS + " INTEGER," +
             // Column metadata (will be null for table row)
             COLUMN_SIZE + " INTEGER," +
             BUFFER_LENGTH + " INTEGER," +
@@ -124,8 +123,15 @@ public interface QueryConstants {
             SCOPE_TABLE + " VARCHAR," +
             SOURCE_DATA_TYPE + " INTEGER," + // supposed to be SHORT
             IS_AUTOINCREMENT + " VARCHAR," +
-            COLUMN_MODIFIER + " INTEGER\n" +
-            "CONSTRAINT " + SYSTEM_TABLE_PK_NAME + " PRIMARY KEY (" + TABLE_SCHEM_NAME + "," + TABLE_NAME_NAME + "," + COLUMN_NAME + "," + TABLE_CAT_NAME + "))\n" +
+            // Columns added in 1.2.1
+            COLUMN_MODIFIER + " INTEGER," +
+            SALT_BUCKETS + " INTEGER," +
+            // Columns added in 2.0.0
+            DATA_TABLE_NAME + " VARCHAR NULL," +
+            INDEX_STATE + " CHAR(1)\n," +
+            IMMUTABLE_ROWS + " BOOLEAN\n" +
+            "CONSTRAINT " + SYSTEM_TABLE_PK_NAME + " PRIMARY KEY (" + TABLE_SCHEM_NAME + "," 
+            + TABLE_NAME_NAME + "," + COLUMN_NAME + "," + TABLE_CAT_NAME + "))\n" +
             HConstants.VERSIONS + "=" + MetaDataProtocol.DEFAULT_MAX_META_DATA_VERSIONS + ",\n" +
             HTableDescriptor.SPLIT_POLICY + "='" + MetaDataSplitPolicy.class.getName() + "'\n";
 }

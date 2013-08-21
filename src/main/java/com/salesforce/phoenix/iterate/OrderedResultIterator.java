@@ -30,15 +30,18 @@ package com.salesforce.phoenix.iterate;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkPositionIndex;
 
+import java.io.IOException;
 import java.sql.SQLException;
-import java.util.*;
+import java.util.Comparator;
+import java.util.List;
 
-import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 
 import com.google.common.base.Function;
-import com.google.common.collect.*;
+import com.google.common.collect.Collections2;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Ordering;
 import com.salesforce.phoenix.expression.Expression;
 import com.salesforce.phoenix.expression.OrderByExpression;
 import com.salesforce.phoenix.schema.tuple.Tuple;
@@ -55,9 +58,9 @@ import com.salesforce.phoenix.util.SizedUtil;
 public class OrderedResultIterator implements ResultIterator {
 
     /** A container that holds pointers to a {@link Result} and its sort keys. */
-    private static class ResultEntry {
-        private final ImmutableBytesWritable[] sortKeys;
-        private final Tuple result;
+    protected static class ResultEntry {
+        protected final ImmutableBytesWritable[] sortKeys;
+        protected final Tuple result;
 
         ResultEntry(ImmutableBytesWritable[] sortKeys, Tuple result) {
             this.sortKeys = sortKeys;
@@ -95,6 +98,7 @@ public class OrderedResultIterator implements ResultIterator {
         }
     };
 
+    private final int thresholdBytes;
     private final Integer limit;
     private final ResultIterator delegate;
     private final List<OrderByExpression> orderByExpressions;
@@ -109,20 +113,21 @@ public class OrderedResultIterator implements ResultIterator {
     
     public OrderedResultIterator(ResultIterator delegate,
                                  List<OrderByExpression> orderByExpressions,
-                                 Integer limit) {
-        this(delegate, orderByExpressions, limit, 0);
+                                 int thresholdBytes, Integer limit) {
+        this(delegate, orderByExpressions, thresholdBytes, limit, 0);
     }
 
     public OrderedResultIterator(ResultIterator delegate,
-            List<OrderByExpression> orderByExpressions) throws SQLException {
-        this(delegate, orderByExpressions, null);
+            List<OrderByExpression> orderByExpressions, int thresholdBytes) throws SQLException {
+        this(delegate, orderByExpressions, thresholdBytes, null);
     }
 
-    public OrderedResultIterator(ResultIterator delegate, List<OrderByExpression> orderByExpressions, Integer limit,
-            int estimatedRowSize) {
+    public OrderedResultIterator(ResultIterator delegate, List<OrderByExpression> orderByExpressions, 
+            int thresholdBytes, Integer limit, int estimatedRowSize) {
         checkArgument(!orderByExpressions.isEmpty());
         this.delegate = delegate;
         this.orderByExpressions = orderByExpressions;
+        this.thresholdBytes = thresholdBytes;
         this.limit = limit;
         long estimatedEntrySize =
             // ResultEntry
@@ -182,45 +187,25 @@ public class OrderedResultIterator implements ResultIterator {
         final int numSortKeys = orderByExpressions.size();
         List<Expression> expressions = Lists.newArrayList(Collections2.transform(orderByExpressions, TO_EXPRESSION));
         final Comparator<ResultEntry> comparator = buildComparator(orderByExpressions);
-        Collection<ResultEntry> entries;
-        if (limit == null) {
-            final List<ResultEntry> listEntries =  Lists.<ResultEntry>newArrayList(); // TODO: size?
-            entries = listEntries;
+        try{
+            final MappedByteBufferSortedQueue queueEntries = new MappedByteBufferSortedQueue(comparator, limit, thresholdBytes);
             resultIterator = new BaseResultIterator() {
-                private int i = -1;
-
+                int count = 0;
                 @Override
                 public Tuple next() throws SQLException {
-                    if (i == -1) {
-                        Collections.<ResultEntry>sort(listEntries, comparator);
-                    } 
-                    if (++i >= listEntries.size()) {
-                        resultIterator = ResultIterator.EMPTY_ITERATOR;
-                        return null;
-                    }
-                    
-                    return listEntries.get(i).getResult();
-                }
-            };
-        } else {
-            final MinMaxPriorityQueue<ResultEntry> queueEntries = MinMaxPriorityQueue.<ResultEntry>orderedBy(comparator).maximumSize(limit).create();
-            entries = queueEntries;
-            resultIterator = new BaseResultIterator() {
-
-                @Override
-                public Tuple next() throws SQLException {
-                    ResultEntry entry = queueEntries.pollFirst();
-                    if (entry == null) {
+                    ResultEntry entry = queueEntries.poll();
+                    if (entry == null || (limit != null && ++count > limit)) {
                         resultIterator = ResultIterator.EMPTY_ITERATOR;
                         return null;
                     }
                     return entry.getResult();
                 }
-                
+
+                @Override
+                public void close() throws SQLException {
+                    queueEntries.close();
+                }
             };
-        }
-        try {
-            long byteSize = 0;
             for (Tuple result = delegate.next(); result != null; result = delegate.next()) {
                 int pos = 0;
                 ImmutableBytesWritable[] sortKeys = new ImmutableBytesWritable[numSortKeys];
@@ -230,19 +215,11 @@ public class OrderedResultIterator implements ResultIterator {
                     // set the sort key that failed to get evaluated with null
                     sortKeys[pos++] = evaluated && sortKey.getLength() > 0 ? sortKey : null;
                 }
-                entries.add(new ResultEntry(sortKeys, result));
-                for (int i = 0; i < result.size(); i++) {
-                    KeyValue keyValue = result.getValue(i);
-                    byteSize += 
-                        // ResultEntry
-                        SizedUtil.OBJECT_SIZE + 
-                        // ImmutableBytesWritable[]
-                        SizedUtil.ARRAY_SIZE + numSortKeys * SizedUtil.IMMUTABLE_BYTES_WRITABLE_SIZE +
-                        // Tuple
-                        SizedUtil.OBJECT_SIZE + keyValue.getLength();
-                }
+                queueEntries.add(new ResultEntry(sortKeys, result));
             }
-            this.byteSize = byteSize;
+            this.byteSize = queueEntries.getByteSize();
+        } catch (IOException e) {
+            throw new SQLException("", e);
         } finally {
             delegate.close();
         }

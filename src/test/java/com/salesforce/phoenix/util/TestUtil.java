@@ -88,13 +88,13 @@ public class TestUtil {
     public final static String ROW9 = "00C923122312312";
 
     public static final long MILLIS_IN_DAY = 1000 * 60 * 60 * 24;
-//    public static final String PHOENIX_JDBC_URL = "jdbc:phoenix:localhost;test=true";
-    public static final String PHOENIX_JDBC_URL = "jdbc:phoenix:cfgtps1q-phys.nam.nsroot.net:2181:/phoneix-hbase;test=true";
+    public static final String PHOENIX_JDBC_URL = "jdbc:phoenix:localhost;test=true";
     public static final String PHOENIX_CONNECTIONLESS_JDBC_URL = PhoenixRuntime.JDBC_PROTOCOL + PhoenixRuntime.JDBC_PROTOCOL_SEPARATOR + PhoenixRuntime.CONNECTIONLESS  + ";test=true";
 
     public static final String TEST_SCHEMA_FILE_NAME = "config" + File.separator + "test-schema.xml";
     public static final String CED_SCHEMA_FILE_NAME = "config" + File.separator + "schema.xml";
     public static final String ATABLE_NAME = "ATABLE";
+    public static final String SUM_DOUBLE_NAME = "SumDoubleTest";
     public static final String ATABLE_SCHEMA_NAME = "";
     public static final String BTABLE_NAME = "BTABLE";
     public static final String STABLE_NAME = "STABLE";
@@ -115,6 +115,8 @@ public class TestUtil {
     public static final String MDTEST_NAME = "MDTEST";
     public static final String KEYONLY_NAME = "KEYONLY";
     public static final String TABLE_WITH_SALTING = "TABLE_WITH_SALTING";
+    public static final String INDEX_DATA_SCHEMA = "INDEX_TEST";
+    public static final String INDEX_DATA_TABLE = "INDEX_DATA_TABLE";
 
     public static final Properties TEST_PROPERTIES = new Properties();
 
@@ -179,6 +181,10 @@ public class TestUtil {
         return new AndExpression(Arrays.asList(expressions));
     }
 
+    public static Expression not(Expression expression) {
+        return new NotExpression(expression);
+    }
+    
     public static Expression or(Expression... expressions) {
         return new OrExpression(Arrays.asList(expressions));
     }

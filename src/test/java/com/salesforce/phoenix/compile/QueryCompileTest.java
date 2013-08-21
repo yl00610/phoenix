@@ -35,7 +35,6 @@ import java.sql.*;
 import java.util.*;
 
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.Test;
 
@@ -349,7 +348,6 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
         String[] queries = new String[] {
             "SELECT count(1) FROM atable GROUP BY organization_id,entity_id",
             "SELECT count(1) FROM atable GROUP BY organization_id,substr(entity_id,1,3),entity_id",
-            "SELECT count(1) FROM atable GROUP BY substr(organization_id,1),entity_id",
             "SELECT count(1) FROM atable GROUP BY entity_id,organization_id",
             "SELECT count(1) FROM atable GROUP BY substr(entity_id,1,3),organization_id",
             "SELECT count(1) FROM ptsdb GROUP BY host,inst,round(date,'HOUR')",
@@ -362,36 +360,6 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
             assertTrue(query, scan.getAttribute(GroupedAggregateRegionObserver.KEY_ORDERED_GROUP_BY_EXPRESSIONS) != null);
             assertTrue(query, scan.getAttribute(GroupedAggregateRegionObserver.UNORDERED_GROUP_BY_EXPRESSIONS) == null);
         }
-    }
-
-    @Test
-    public void testConstantCountForSingleCF() throws Exception {
-        // Select columns in PK
-        String query = "select count(1) from atable";
-        List<Object> binds = Collections.emptyList();
-        Scan scan = new Scan();
-        compileQuery(query, binds, scan);
-        // Projects nothing, but adds FirstKeyOnlyFilter
-        assertTrue(scan.getFamilyMap().isEmpty());
-        assertTrue(scan.getFilter() instanceof FirstKeyOnlyFilter);
-    }
-
-    @Test
-    public void testConstantCountForMultiCF() throws Exception {
-        // Select columns in PK
-        String query = "select count(1) from multi_cf";
-        List<Object> binds = Collections.emptyList();
-        Scan scan = new Scan();
-        compileQuery(query, binds, scan);
-        // Projects nothing, but adds FirstKeyOnlyFilter
-        Set<byte[]> projectedFamilies = scan.getFamilyMap().keySet();
-        assertEquals(1, scan.getFamilyMap().values().size());
-        // Empty column name
-        assertArrayEquals(QueryConstants.EMPTY_COLUMN_BYTES, scan.getFamilyMap().values().iterator().next().iterator().next());
-        assertEquals(1,projectedFamilies.size());
-        // Empty column name should be in first column family
-        assertTrue(projectedFamilies.contains(Bytes.toBytes(SchemaUtil.normalizeIdentifier("a"))));
-        assertNull(scan.getFilter());
     }
 
     @Test
@@ -506,25 +474,6 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
     }
 
     @Test
-    public void testOrderByOnUnlimitedSelect() throws Exception {
-        try {
-            // Order by in select with no limit or group by
-            String query = "select a_string from ATABLE order by b_string";
-            Properties props = new Properties(TestUtil.TEST_PROPERTIES);
-            Connection conn = DriverManager.getConnection(getUrl(), props);
-            try {
-                PreparedStatement statement = conn.prepareStatement(query);
-                statement.executeQuery();
-                fail();
-            } finally {
-                conn.close();
-            }
-        } catch (SQLException e) { // TODO: use error codes
-            assertTrue(e.getMessage().contains("ORDER BY only allowed for limited or aggregate queries"));
-        }
-    }
-
-    @Test
     public void testOrderByAggSelectNonAgg() throws Exception {
         try {
             // Order by in select with no limit or group by
@@ -582,35 +531,6 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
     }
 
     @Test
-    public void testFirstKeyOnlyFilter() throws Exception {
-        // Select columns in PK
-        String[] queries = new String[] {
-            "SELECT count(1) FROM atable",
-        };
-        List<Object> binds = Collections.emptyList();
-        for (String query : queries) {
-            Scan scan = new Scan();
-            compileQuery(query, binds, scan);
-            assertTrue(scan.getFilter() instanceof FirstKeyOnlyFilter);
-        }
-    }
-
-    @Test
-    public void testNotFirstKeyOnlyFilter() throws Exception {
-        // Select columns in PK
-        String[] queries = new String[] {
-            "SELECT count(1) FROM atable GROUP BY a_string",
-            "SELECT count(b_string) FROM atable",
-        };
-        List<Object> binds = Collections.emptyList();
-        for (String query : queries) {
-            Scan scan = new Scan();
-            compileQuery(query, binds, scan);
-            assertFalse(scan.getFilter() instanceof FirstKeyOnlyFilter);
-        }
-    }
-
-    @Test
     public void testNotKeyOrderedGroupByOptimization() throws Exception {
         // Select columns in PK
         String[] queries = new String[] {
@@ -618,6 +538,8 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
             "SELECT count(1) FROM atable GROUP BY substr(organization_id,2,3)",
             "SELECT count(1) FROM atable GROUP BY substr(entity_id,1,3)",
             "SELECT count(1) FROM atable GROUP BY to_date(organization_id)",
+            "SELECT count(1) FROM atable GROUP BY regexp_substr(organization_id, '.*foo.*'),entity_id",
+            "SELECT count(1) FROM atable GROUP BY substr(organization_id,1),entity_id",
         };
         List<Object> binds = Collections.emptyList();
         for (String query : queries) {
@@ -840,7 +762,7 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
         List<Object> binds = Collections.emptyList();
         Scan scan = new Scan();
         compileQuery(query, binds, scan);
-        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc"),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStartRow());
+        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc")), scan.getStartRow());
         assertArrayEquals(ByteUtil.concat(ByteUtil.nextKey(Bytes.toBytes("abc")),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStopRow());
         assertTrue(scan.getFilter() != null);
 
@@ -848,7 +770,7 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
         binds = Collections.emptyList();
         scan = new Scan();
         compileQuery(query, binds, scan);
-        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc"),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStartRow());
+        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc")), scan.getStartRow());
         assertArrayEquals(ByteUtil.concat(ByteUtil.nextKey(Bytes.toBytes("abc")),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStopRow());
         assertTrue(scan.getFilter() != null);
 
@@ -932,12 +854,42 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
     }
 
     @Test
+    public void testCreateIndexOnNonImmutableTable() throws Exception {
+        long ts = nextTimestamp();
+        String query = "CREATE INDEX idx ON atable(a_string)";
+        String url = getUrl() + ";" + PhoenixRuntime.CURRENT_SCN_ATTRIB + "=" + (ts + 5); // Run query at timestamp 5
+        Connection conn = DriverManager.getConnection(url);
+        try {
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.execute();
+            fail();
+        } catch (SQLException e) { // expected
+            assertTrue(e.getErrorCode() == SQLExceptionCode.INDEX_ONLY_ON_IMMUTABLE_TABLE.getErrorCode());
+        }
+    }
+
+    @Test
+    public void testSetSaltBucketOnAlterTable() throws Exception {
+        long ts = nextTimestamp();
+        String query = "ALTER TABLE atable ADD xyz INTEGER SALT_BUCKETS=4";
+        String url = getUrl() + ";" + PhoenixRuntime.CURRENT_SCN_ATTRIB + "=" + (ts + 5); // Run query at timestamp 5
+        Connection conn = DriverManager.getConnection(url);
+        try {
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.execute();
+            fail();
+        } catch (SQLException e) { // expected
+            assertTrue(e.getErrorCode() == SQLExceptionCode.SALT_ONLY_ON_CREATE_TABLE.getErrorCode());
+        }
+    }
+
+    @Test
     public void testSubstrSetScanKey() throws Exception {
         String query = "SELECT inst FROM ptsdb WHERE substr(inst, 0, 3) = 'abc'";
         List<Object> binds = Collections.emptyList();
         Scan scan = new Scan();
         compileQuery(query, binds, scan);
-        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc"),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStartRow());
+        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc")), scan.getStartRow());
         assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abd"),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStopRow());
         assertTrue(scan.getFilter() == null); // Extracted.
     }
@@ -948,7 +900,7 @@ public class QueryCompileTest extends BaseConnectionlessQueryTest {
         List<Object> binds = Collections.emptyList();
         Scan scan = new Scan();
         compileQuery(query, binds, scan);
-        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc"),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStartRow());
+        assertArrayEquals(ByteUtil.concat(Bytes.toBytes("abc")), scan.getStartRow());
         assertArrayEquals(ByteUtil.concat(ByteUtil.nextKey(Bytes.toBytes("abc ")),QueryConstants.SEPARATOR_BYTE_ARRAY), scan.getStopRow());
         assertNotNull(scan.getFilter());
     }

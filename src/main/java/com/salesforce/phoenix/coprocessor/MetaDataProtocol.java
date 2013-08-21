@@ -58,15 +58,18 @@ import com.salesforce.phoenix.util.MetaDataUtil;
  * @since 0.1
  */
 public interface MetaDataProtocol extends CoprocessorProtocol {
-    public static final int PHOENIX_MAJOR_VERSION = 1;
-    public static final int PHOENIX_MINOR_VERSION = 2;
+    public static final int PHOENIX_MAJOR_VERSION = 2;
+    public static final int PHOENIX_MINOR_VERSION = 0;
     public static final int PHOENIX_PATCH_NUMBER = 0;
     public static final int PHOENIX_VERSION = 
             MetaDataUtil.encodeVersion(PHOENIX_MAJOR_VERSION, PHOENIX_MINOR_VERSION, PHOENIX_PATCH_NUMBER);
-    // Lowest acceptable Phoenix server jar version. Phoenix would work with this or higher version of server Phoenix.
-    public static final int MINIMUM_PHOENIX_SERVER_VERSION = MetaDataUtil.encodeVersion("1.2.0");
     
     public static final long MIN_TABLE_TIMESTAMP = 0;
+    // Increase MIN_SYSTEM_TABLE_TIMESTAMP by one for each schema change SYSTEM.TABLE schema changes.
+    // For 1.0,1.1,1.2,and 1.2.1 we used MetaDataProtocol.MIN_TABLE_TIMESTAMP+1
+    // For 2.0 and above, we use MetaDataProtocol.MIN_TABLE_TIMESTAMP+7 so that we can add the five new
+    // columns to the existing system table (three new columns in 1.2.1 and two new columns in 1.2)
+    public static final long MIN_SYSTEM_TABLE_TIMESTAMP = MIN_TABLE_TIMESTAMP + 7;
     public static final int DEFAULT_MAX_META_DATA_VERSIONS = 1000;
 
     public enum MutationCode {
@@ -78,7 +81,8 @@ public interface MetaDataProtocol extends CoprocessorProtocol {
         TABLE_NOT_IN_REGION,
         NEWER_TABLE_FOUND,
         UNALLOWED_TABLE_MUTATION,
-        NO_PK_COLUMNS
+        NO_PK_COLUMNS,
+        PARENT_TABLE_NOT_FOUND 
     };
     
     public static class MetaDataMutationResult implements Writable {
@@ -141,6 +145,7 @@ public interface MetaDataProtocol extends CoprocessorProtocol {
      * @throws IOException
      */
     MetaDataMutationResult getTable(byte[] schemaName, byte[] tableName, long tableTimestamp, long clientTimestamp) throws IOException;
+
     /**
      * Create a new Phoenix table
      * @param tableMetadata
@@ -148,15 +153,16 @@ public interface MetaDataProtocol extends CoprocessorProtocol {
      * @throws IOException
      */
     MetaDataMutationResult createTable(List<Mutation> tableMetadata) throws IOException;
+
     /**
      * Drop an existing Phoenix table
      * @param tableMetadata
-     * @param isView TODO
+     * @param tableType
      * @return MetaDataMutationResult
      * @throws IOException
      */
-    MetaDataMutationResult dropTable(List<Mutation> tableMetadata, boolean isView) throws IOException;
-    
+    MetaDataMutationResult dropTable(List<Mutation> tableMetadata, String tableType) throws IOException;
+
     /**
      * Add a column to an existing Phoenix table
      * @param tableMetadata
@@ -173,6 +179,8 @@ public interface MetaDataProtocol extends CoprocessorProtocol {
      */
     MetaDataMutationResult dropColumn(List<Mutation> tableMetadata) throws IOException;
     
+    MetaDataMutationResult updateIndexState(List<Mutation> tableMetadata) throws IOException;
+
     /**
      * Clears the server-side cache of table meta data. Used between test runs to
      * ensure no side effects.

@@ -27,10 +27,12 @@
  ******************************************************************************/
 package com.salesforce.phoenix.schema;
 
+
 public enum PTableType {
     SYSTEM("s"), 
     USER("u"),
-    VIEW("v"); 
+    VIEW("v"),
+    INDEX("i"); 
 
     private final String serializedValue;
     

@@ -27,14 +27,12 @@
  ******************************************************************************/
 package com.salesforce.phoenix.expression;
 
-import static com.salesforce.phoenix.expression.function.ToCharFunction.Type.TEMPORAL;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Date;
-import java.text.SimpleDateFormat;
 import java.util.*;
 
 import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
@@ -48,7 +46,7 @@ import com.salesforce.phoenix.schema.PDataType;
 import com.salesforce.phoenix.util.DateUtil;
 
 /**
- * @author stoens
+ * @author simontoens
  * @since 1.2
  */
 public class DescColumnSortOrderExpressionTest {
@@ -124,25 +122,67 @@ public class DescColumnSortOrderExpressionTest {
     @Test
     public void toChar() throws Exception {
         List<Expression> args = Lists.newArrayList(getInvertedLiteral(date(12, 11, 2001), PDataType.DATE));
-        evaluateAndAssertResult(new ToCharFunction(args, TEMPORAL, "", new SimpleDateFormat()), "12/11/01 12:00 AM");
+        evaluateAndAssertResult(new ToCharFunction(args, FunctionArgumentType.TEMPORAL, "", DateUtil.getDateFormatter("MM/dd/yy hh:mm a")), "12/11/01 12:00 AM");
     }
     
     @Test
     public void toDate() throws Exception {
-        List<Expression> args = Lists.newArrayList(getInvertedLiteral("2001-11-30 01:00:00:0 PDT", PDataType.VARCHAR));
-        evaluateAndAssertResult(new ToDateFunction(args, null, DateUtil.getDateParser("yyyy-MM-dd HH:mm:ss:S z")), date(11, 30, 2001));
+        List<Expression> args = Lists.newArrayList(getInvertedLiteral("2001-11-30 00:00:00:0", PDataType.VARCHAR));
+        evaluateAndAssertResult(new ToDateFunction(args, null, DateUtil.getDateParser("yyyy-MM-dd HH:mm:ss:S")), date(11, 30, 2001));
     }
     
     @Test
     public void toNumber() throws Exception {
         List<Expression> args = Lists.newArrayList(getInvertedLiteral("10", PDataType.VARCHAR));
-        evaluateAndAssertResult(new ToNumberFunction(args), new BigDecimal(BigInteger.valueOf(1), -1));
+        evaluateAndAssertResult(new ToNumberFunction(args, FunctionArgumentType.CHAR, "", null), new BigDecimal(BigInteger.valueOf(1), -1));
     }
     
     @Test
     public void trim() throws Exception {
         List<Expression> args = Lists.newArrayList(getInvertedLiteral("   blah    ", PDataType.CHAR));
         evaluateAndAssertResult(new TrimFunction(args), "blah");
+    }
+    
+    @Test
+    public void add() throws Exception {
+        List<Expression> args = Lists.newArrayList(getInvertedLiteral(10, PDataType.INTEGER), getLiteral(2));
+        evaluateAndAssertResult(new DecimalAddExpression(args), BigDecimal.valueOf(12));
+        
+        args = Lists.newArrayList(getInvertedLiteral(10, PDataType.INTEGER), getLiteral(2));
+        evaluateAndAssertResult(new LongAddExpression(args), 12l);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleAddExpression(args), 12.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleAddExpression(args), 12.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleAddExpression(args), 12.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleAddExpression(args), 12.0);
+    }
+
+    @Test
+    public void subtract() throws Exception {
+        List<Expression> args = Lists.newArrayList(getInvertedLiteral(10, PDataType.INTEGER), getLiteral(2));
+        evaluateAndAssertResult(new DecimalSubtractExpression(args), BigDecimal.valueOf(8));
+        
+        args = Lists.newArrayList(getInvertedLiteral(10, PDataType.INTEGER), getLiteral(2));
+        evaluateAndAssertResult(new LongSubtractExpression(args), 8l);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleSubtractExpression(args), 8.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleSubtractExpression(args), 8.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleSubtractExpression(args), 8.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleSubtractExpression(args), 8.0);
     }
     
     @Test
@@ -153,6 +193,17 @@ public class DescColumnSortOrderExpressionTest {
         args = Lists.newArrayList(getInvertedLiteral(10, PDataType.INTEGER), getLiteral(2));
         evaluateAndAssertResult(new LongDivideExpression(args), 5l);
         
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleDivideExpression(args), 5.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleDivideExpression(args), 5.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleDivideExpression(args), 5.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleDivideExpression(args), 5.0);
     }
     
     @Test
@@ -161,7 +212,19 @@ public class DescColumnSortOrderExpressionTest {
         evaluateAndAssertResult(new DecimalMultiplyExpression(args), new BigDecimal(BigInteger.valueOf(2), -1));
         
         args = Lists.newArrayList(getInvertedLiteral(10, PDataType.INTEGER), getLiteral(2));
-        evaluateAndAssertResult(new LongMultiplyExpression(args), 20l);        
+        evaluateAndAssertResult(new LongMultiplyExpression(args), 20l);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleMultiplyExpression(args), 20.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_FLOAT), getLiteral(2));
+        evaluateAndAssertResult(new DoubleMultiplyExpression(args), 20.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.UNSIGNED_DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleMultiplyExpression(args), 20.0);
+        
+        args = Lists.newArrayList(getInvertedLiteral(10.0, PDataType.DOUBLE), getLiteral(2));
+        evaluateAndAssertResult(new DoubleMultiplyExpression(args), 20.0);
     }
         
     @Test
@@ -247,7 +310,7 @@ public class DescColumnSortOrderExpressionTest {
         cal.set(Calendar.MINUTE, 0);
         cal.set(Calendar.SECOND, 0);
         cal.set(Calendar.MILLISECOND, 0);
-        cal.setTimeZone(TimeZone.getTimeZone("America/Los_Angeles"));
+        cal.setTimeZone(DateUtil.DATE_TIME_ZONE);
         Date d = new Date(cal.getTimeInMillis()); 
         return d;
     }    

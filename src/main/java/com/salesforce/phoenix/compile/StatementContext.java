@@ -35,8 +35,7 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 
 import com.salesforce.phoenix.jdbc.PhoenixConnection;
-import com.salesforce.phoenix.parse.HintNode;
-import com.salesforce.phoenix.parse.HintNode.Hint;
+import com.salesforce.phoenix.parse.BindableStatement;
 import com.salesforce.phoenix.query.QueryConstants;
 import com.salesforce.phoenix.query.QueryServices;
 import com.salesforce.phoenix.schema.MetaDataClient;
@@ -65,33 +64,22 @@ public class StatementContext {
     private final String numberFormat;
     private final ImmutableBytesWritable tempPtr;
     private final PhoenixConnection connection;
-    private final HintNode hintNode;
-
-    private boolean isAggregate;
+    
     private long currentTime = QueryConstants.UNSET_TIMESTAMP;
     private ScanRanges scanRanges = ScanRanges.EVERYTHING;
 
-    public StatementContext(PhoenixConnection connection, ColumnResolver resolver, List<Object> binds, int bindCount, Scan scan) {
-        this(connection, resolver, binds, bindCount, scan, null);
-    }
-    
-    public StatementContext(PhoenixConnection connection, ColumnResolver resolver, List<Object> binds, int bindCount, Scan scan, HintNode hintNode) {
+    public StatementContext(BindableStatement statement, PhoenixConnection connection, ColumnResolver resolver, List<Object> binds, Scan scan) {
         this.connection = connection;
         this.resolver = resolver;
         this.scan = scan;
-        this.binds = new BindManager(binds, bindCount);
+        this.binds = new BindManager(binds, statement.getBindCount());
         this.aggregates = new AggregationManager();
         this.expressions = new ExpressionManager();
-        this.dateFormat = connection.getQueryServices().getConfig().get(QueryServices.DATE_FORMAT_ATTRIB, DateUtil.DEFAULT_DATE_FORMAT);
+        this.dateFormat = connection.getQueryServices().getProps().get(QueryServices.DATE_FORMAT_ATTRIB, DateUtil.DEFAULT_DATE_FORMAT);
         this.dateFormatter = DateUtil.getDateFormatter(dateFormat);
         this.dateParser = DateUtil.getDateParser(dateFormat);
-        this.numberFormat = connection.getQueryServices().getConfig().get(QueryServices.NUMBER_FORMAT_ATTRIB, NumberUtil.DEFAULT_NUMBER_FORMAT);
+        this.numberFormat = connection.getQueryServices().getProps().get(QueryServices.NUMBER_FORMAT_ATTRIB, NumberUtil.DEFAULT_NUMBER_FORMAT);
         this.tempPtr = new ImmutableBytesWritable();
-        this.hintNode = hintNode;
-    }
-
-    public boolean hasHint(Hint hint) {
-        return hintNode == null ? false : hintNode.hasHint(hint);
     }
 
     public String getDateFormat() {
@@ -167,15 +155,4 @@ public class StatementContext {
         currentTime = Math.abs(client.updateCache(table.getSchema().getName(), table.getTable().getName().getString()));
         return currentTime;
     }
-
-
-    public void setAggregate(boolean isAggregate) {
-        this.isAggregate = isAggregate;
-    }
-
-
-    public boolean isAggregate() {
-        return isAggregate;
-    }
-
 }

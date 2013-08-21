@@ -27,6 +27,7 @@
  ******************************************************************************/
 package com.salesforce.phoenix.schema;
 
+
 /**
  * 
  * Interface to encapsulate both the client-side name

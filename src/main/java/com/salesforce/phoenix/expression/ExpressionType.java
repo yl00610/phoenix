@@ -86,7 +86,17 @@ public enum ExpressionType {
     UpperFunction(UpperFunction.class),
     LowerFunction(LowerFunction.class),
     TrimFunction(TrimFunction.class),
-    LatestPriceFunction(CorMaxAggregateFunction.class);
+    DistinctCountAggregateFunction(DistinctCountAggregateFunction.class),
+    PercentileContAggregateFunction(PercentileContAggregateFunction.class),
+    PercentRankAggregateFunction(PercentRankAggregateFunction.class),
+    StddevPopFunction(StddevPopFunction.class),
+    StddevSampFunction(StddevSampFunction.class),
+    PercentileDiscAggregateFunction(PercentileDiscAggregateFunction.class),
+    DoubleAddExpression(DoubleAddExpression.class),
+    DoubleSubtractExpression(DoubleSubtractExpression.class),
+    DoubleMultiplyExpression(DoubleMultiplyExpression.class),
+    DoubleDivideExpression(DoubleDivideExpression.class),    
+    CorMaxFunction(CorMaxAggregateFunction.class);
 
     ExpressionType(Class<? extends Expression> clazz) {
         this.clazz = clazz;

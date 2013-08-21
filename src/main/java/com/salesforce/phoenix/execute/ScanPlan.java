@@ -36,7 +36,8 @@ import com.salesforce.phoenix.compile.OrderByCompiler.OrderBy;
 import com.salesforce.phoenix.compile.*;
 import com.salesforce.phoenix.coprocessor.ScanRegionObserver;
 import com.salesforce.phoenix.iterate.*;
-import com.salesforce.phoenix.parse.HintNode.Hint;
+import com.salesforce.phoenix.iterate.ParallelIterators.ParallelIteratorFactory;
+import com.salesforce.phoenix.parse.FilterableStatement;
 import com.salesforce.phoenix.query.*;
 import com.salesforce.phoenix.schema.*;
 
@@ -52,10 +53,12 @@ import com.salesforce.phoenix.schema.*;
 public class ScanPlan extends BasicQueryPlan {
     private List<KeyRange> splits;
     
-    public ScanPlan(StatementContext context, TableRef table, RowProjector projector, Integer limit, OrderBy orderBy) {
-        super(context, table, projector, context.getBindManager().getParameterMetaData(), limit, orderBy);
-        if (limit != null && !orderBy.getOrderByExpressions().isEmpty() && !context.hasHint(Hint.NO_INTRA_REGION_PARALLELIZATION)) { // TopN
-            ScanRegionObserver.serializeIntoScan(context.getScan(), limit, orderBy.getOrderByExpressions(), projector.getEstimatedByteSize());
+    public ScanPlan(StatementContext context, FilterableStatement statement, TableRef table, RowProjector projector, Integer limit, OrderBy orderBy, ParallelIteratorFactory parallelIteratorFactory) {
+        super(context, statement, table, projector, context.getBindManager().getParameterMetaData(), limit, orderBy, null, parallelIteratorFactory);
+        if (!orderBy.getOrderByExpressions().isEmpty()) { // TopN
+            int thresholdBytes = context.getConnection().getQueryServices().getProps().getInt(
+                    QueryServices.SPOOL_THRESHOLD_BYTES_ATTRIB, QueryServicesOptions.DEFAULT_SPOOL_THRESHOLD_BYTES);
+            ScanRegionObserver.serializeIntoScan(context.getScan(), thresholdBytes, limit == null ? -1 : limit, orderBy.getOrderByExpressions(), projector.getEstimatedRowByteSize());
         }
     }
     
@@ -65,58 +68,34 @@ public class ScanPlan extends BasicQueryPlan {
     }
     
     @Override
-    public boolean isAggregate() {
-        return false;
-    }
-    
-    @Override
     protected Scanner newScanner(ConnectionQueryServices services) throws SQLException {
         // Set any scan attributes before creating the scanner, as it will be too late afterwards
         context.getScan().setAttribute(ScanRegionObserver.NON_AGGREGATE_QUERY, QueryConstants.TRUE);
         ResultIterator scanner;
-        TableRef tableRef = this.getTable();
+        TableRef tableRef = this.getTableRef();
         PTable table = tableRef.getTable();
         boolean isSalted = table.getBucketNum() != null;
         /* If no limit or topN, use parallel iterator so that we get results faster. Otherwise, if
          * limit is provided, run query serially.
          */
-        if (limit == null || !orderBy.getOrderByExpressions().isEmpty()) {
-            ParallelIterators iterators = new ParallelIterators(context, tableRef, RowCounter.UNLIMIT_ROW_COUNTER, GroupBy.EMPTY_GROUP_BY);
-            splits = iterators.getSplits();
-            if (orderBy.getOrderByExpressions().isEmpty()) {
-                if (isSalted && 
-                        services.getConfig().getBoolean(
-                                QueryServices.ROW_KEY_ORDER_SALTED_TABLE_ATTRIB, 
-                                QueryServicesOptions.DEFAULT_ROW_KEY_ORDER_SALTED_TABLE)) {
-                    scanner = new MergeSortRowKeyResultIterator(iterators, SaltingUtil.NUM_SALTING_BYTES);
-                } else {
-                    scanner = new ConcatResultIterator(iterators);
-                }
-            } else {
-                // If we expect to have a small amount of data in a single region
-                // do the sort on the client side
-                if (context.hasHint(Hint.NO_INTRA_REGION_PARALLELIZATION)) {
-                    scanner = new ConcatResultIterator(iterators);
-                    scanner = new OrderedResultIterator(scanner, orderBy.getOrderByExpressions(), limit);
-                } else {
-                    scanner = new MergeSortTopNResultIterator(iterators, limit, orderBy.getOrderByExpressions());
-                }
-            }
+        boolean isOrdered = !orderBy.getOrderByExpressions().isEmpty();
+        ParallelIterators iterators = new ParallelIterators(context, tableRef, statement, projection, GroupBy.EMPTY_GROUP_BY, isOrdered ? null : limit, parallelIteratorFactory);
+        splits = iterators.getSplits();
+        if (isOrdered) {
+            scanner = new MergeSortTopNResultIterator(iterators, limit, orderBy.getOrderByExpressions());
         } else {
-            // If we're a salted table and we're guaranteeing the same row key order traversal,
-            // use a ResultIterators implementation that runs one serial scan per bucket and
-            // then does a merge sort against those.  Otherwise, we can use a regular table scan.
             if (isSalted && 
-                    services.getConfig().getBoolean(
+                    (services.getProps().getBoolean(
                             QueryServices.ROW_KEY_ORDER_SALTED_TABLE_ATTRIB, 
-                            QueryServicesOptions.DEFAULT_ROW_KEY_ORDER_SALTED_TABLE)) {
-                ResultIterators iterators = new SaltingSerialIterators(context, tableRef, limit);
+                            QueryServicesOptions.DEFAULT_ROW_KEY_ORDER_SALTED_TABLE) ||
+                     orderBy == OrderBy.ROW_KEY_ORDER_BY)) { // ORDER BY was optimized out b/c query is in row key order
                 scanner = new MergeSortRowKeyResultIterator(iterators, SaltingUtil.NUM_SALTING_BYTES);
             } else {
-                scanner = new TableResultIterator(context, tableRef);
+                scanner = new ConcatResultIterator(iterators);
             }
-            scanner = new SerialLimitingResultIterator(scanner, limit, new ScanRowCounter());
-            splits = null;
+            if (limit != null) {
+                scanner = new LimitingResultIterator(scanner, limit);
+            }
         }
 
         return new WrappedScanner(scanner, getProjector());

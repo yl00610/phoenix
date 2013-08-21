@@ -285,7 +285,6 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
             }
             this.aggregateFunction = node;
             this.isAggregate = true;
-            this.context.setAggregate(true);
             
         }
         return true;
@@ -362,7 +361,7 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
      * @throws SQLException if the column expression node does not refer to a known/unambiguous column
      */
     protected ColumnRef resolveColumn(ColumnParseNode node) throws SQLException {
-        return context.getResolver().resolveColumn(node);
+        return context.getResolver().resolveColumn(node.getSchemaName(), node.getTableName(), node.getName());
     }
     
     @Override
@@ -575,11 +574,15 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                 context.getBindManager().addParamMetaData((BindParseNode)childNode, firstChild);
             }
         }
+        boolean isNot = node.isNegate();
         // TODO: if inChildren.isEmpty() then Oracle throws a type mismatch exception. This means
         // that none of the list elements match in type and there's no null element. We'd return
         // false in this case. Should we throw?
         if (node.isConstant()) {
-            InListExpression expression = new InListExpression(inChildren);
+            Expression expression = new InListExpression(inChildren);
+            if (isNot) {
+                expression = new NotExpression(expression);
+            }
             Object value = null;
             PDataType type = expression.getDataType();
             ImmutableBytesWritable ptr = context.getTempPtr();
@@ -588,10 +591,13 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
             }
             return LiteralExpression.newConstant(value, type);
         }
+        Expression expression;
         if (inChildren.size() == 2) {
-            return new ComparisonExpression(CompareOp.EQUAL, inChildren);
+            expression = new ComparisonExpression(CompareOp.EQUAL, inChildren);
+        } else {
+            expression = new InListExpression(inChildren);
         }
-        return new InListExpression(inChildren);
+        return isNot ? new NotExpression(expression) : expression;
     }
 
     private static final PDatum DECIMAL_DATUM = new PDatum() {
@@ -833,17 +839,28 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                     }
                 }
                 for (; i < children.size(); i++) {
+                    // This logic finds the common type to which all child types are coercible
+                    // without losing precision.
                     PDataType type = children.get(i).getDataType();
                     if (type == null) {
                         continue;
+                    } else if (type.isCoercibleTo(PDataType.LONG)) {
+                        if (theType == null) {
+                            theType = PDataType.LONG;
+                        }
                     } else if (type == PDataType.DECIMAL) {
+                        // Coerce return type to DECIMAL from LONG or DOUBLE if DECIMAL child found,
+                        // unless we're doing date arithmetic.
                         if (theType == null
                                 || !theType.isCoercibleTo(PDataType.DATE)) {
                             theType = PDataType.DECIMAL;
                         }
-                    } else if (type.isCoercibleTo(PDataType.LONG)) {
-                        if (theType == null) {
-                            theType = PDataType.LONG;
+                    } else if (type.isCoercibleTo(PDataType.DOUBLE)) {
+                        // Coerce return type to DOUBLE from LONG if DOUBLE child found,
+                        // unless we're doing date arithmetic or we've found another child of type DECIMAL
+                        if (theType == null
+                                || (theType != PDataType.DECIMAL && !theType.isCoercibleTo(PDataType.DATE) )) {
+                            theType = PDataType.DOUBLE;
                         }
                     } else {
                         throw new TypeMismatchException(type, node.toString());
@@ -853,6 +870,8 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                     return new DecimalSubtractExpression(children);
                 } else if (theType == PDataType.LONG) {
                     return new LongSubtractExpression(children);
+                } else if (theType == PDataType.DOUBLE) {
+                    return new DoubleSubtractExpression(children);
                 } else if (theType == null) {
                     return LiteralExpression.newConstant(null, theType);
                 } else if (theType.isCoercibleTo(PDataType.DATE)) {
@@ -930,6 +949,10 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                             if (theType == null) {
                                 theType = PDataType.LONG;
                             }
+                        } else if (type.isCoercibleTo(PDataType.DOUBLE)) {
+                            if (theType == null) {
+                                theType = PDataType.DOUBLE;
+                            }
                         } else {
                             throw new TypeMismatchException(type, node.toString());
                         }
@@ -938,6 +961,8 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                         return new DecimalAddExpression( children);
                     } else if (theType == PDataType.LONG) {
                         return new LongAddExpression( children);
+                    } else if (theType == PDataType.DOUBLE) {
+                        return new DoubleAddExpression( children);
                     } else if (theType == null) {
                         return LiteralExpression.newConstant(null, theType);
                     } else if (theType.isCoercibleTo(PDataType.DATE)) {
@@ -970,6 +995,10 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                         if (theType == null) {
                             theType = PDataType.LONG;
                         }
+                    } else if (type.isCoercibleTo(PDataType.DOUBLE)) {
+                        if (theType == null) {
+                            theType = PDataType.DOUBLE;
+                        }
                     } else {
                         throw new TypeMismatchException(type, node.toString());
                     }
@@ -979,6 +1008,8 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                     return new DecimalMultiplyExpression( children);
                 case LONG:
                     return new LongMultiplyExpression( children);
+                case DOUBLE:
+                    return new DoubleMultiplyExpression( children);
                 default:
                     return LiteralExpression.newConstant(null, theType);
                 }
@@ -1022,6 +1053,10 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                         if (theType == null) {
                             theType = PDataType.LONG;
                         }
+                    } else if (type.isCoercibleTo(PDataType.DOUBLE)) {
+                        if (theType == null) {
+                            theType = PDataType.DOUBLE;
+                        }
                     } else {
                         throw new TypeMismatchException(type, node.toString());
                     }
@@ -1031,6 +1066,8 @@ public class ExpressionCompiler extends UnsupportedAllParseNodeVisitor<Expressio
                     return new DecimalDivideExpression( children);
                 case LONG:
                     return new LongDivideExpression( children);
+                case DOUBLE:
+                    return new DoubleDivideExpression(children);
                 default:
                     return LiteralExpression.newConstant(null, theType);
                 }

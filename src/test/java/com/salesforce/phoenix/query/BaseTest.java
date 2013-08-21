@@ -44,6 +44,7 @@ import com.google.common.collect.ImmutableMap;
 import com.salesforce.phoenix.jdbc.PhoenixTestDriver;
 import com.salesforce.phoenix.schema.TableAlreadyExistsException;
 import com.salesforce.phoenix.util.PhoenixRuntime;
+import com.salesforce.phoenix.util.ReadOnlyProps;
 
 public abstract class BaseTest {
     private static final Map<String,String> tableDDLMap;
@@ -61,7 +62,13 @@ public abstract class BaseTest {
                 "    x_decimal decimal(31,10),\n" +
                 "    x_long bigint,\n" +
                 "    x_integer integer,\n" +
-                "    y_integer integer\n" +
+                "    y_integer integer,\n" +
+                "    a_byte tinyint,\n" +
+                "    a_short smallint,\n" +
+                "    a_float float,\n" +
+                "    a_double double,\n" +
+                "    a_unsigned_float unsigned_float,\n" +
+                "    a_unsigned_double unsigned_double\n" +
                 "    CONSTRAINT pk PRIMARY KEY (organization_id, entity_id)\n" +
                 ")");
         builder.put(BTABLE_NAME,"create table " + BTABLE_NAME +
@@ -208,13 +215,33 @@ public abstract class BaseTest {
                 "   (pk unsigned_int not null primary key)");
         builder.put("PKUnsignedLongValueTest", "create table PKUnsignedLongValueTest" +
                 "   (pk unsigned_long not null\n" +
-                "    CONSTRAINT pk PRIMARY KEY (unsigned_long))");
+                "    CONSTRAINT pk PRIMARY KEY (pk))");
         builder.put("KVIntValueTest", "create table KVIntValueTest" +
                 "   (pk integer not null primary key,\n" +
                 "    kv integer)\n");
         builder.put("KVBigIntValueTest", "create table KVBigIntValueTest" +
                 "   (pk integer not null primary key,\n" +
                 "    kv bigint)\n");
+        builder.put(INDEX_DATA_TABLE, "create table " + INDEX_DATA_SCHEMA + QueryConstants.NAME_SEPARATOR + INDEX_DATA_TABLE + "(" +
+                "   varchar_pk VARCHAR NOT NULL, " +
+                "   char_pk CHAR(5) NOT NULL, " +
+                "   int_pk INTEGER NOT NULL, "+ 
+                "   long_pk BIGINT NOT NULL, " +
+                "   decimal_pk DECIMAL(31, 10) NOT NULL, " +
+                "   a.varchar_col1 VARCHAR, " +
+                "   a.char_col1 CHAR(5), " +
+                "   a.int_col1 INTEGER, " +
+                "   a.long_col1 BIGINT, " +
+                "   a.decimal_col1 DECIMAL(31, 10), " +
+                "   b.varchar_col2 VARCHAR, " +
+                "   b.char_col2 CHAR(5), " +
+                "   b.int_col2 INTEGER, " +
+                "   b.long_col2 BIGINT, " +
+                "   b.decimal_col2 DECIMAL(31, 10) " +
+                "   CONSTRAINT pk PRIMARY KEY (varchar_pk, char_pk, int_pk, long_pk DESC, decimal_pk)) " +
+                "IMMUTABLE_ROWS=true");
+        builder.put("SumDoubleTest","create table SumDoubleTest" +
+                "   (id varchar not null primary key, d DOUBLE, f FLOAT, ud UNSIGNED_DOUBLE, uf UNSIGNED_FLOAT, i integer, de decimal)");
         tableDDLMap = builder.build();
     }
 
@@ -270,10 +297,18 @@ public abstract class BaseTest {
         }
     }
 
-    protected static void startServer(String url) throws Exception {
-        PhoenixTestDriver driver = initDriver(new QueryServicesTestImpl());
+    protected static void startServer(String url, ReadOnlyProps props) throws Exception {
+//        Pass config through initDriver for testing purposes
+//        Don't create Config or surface getConfig or getProps in QueryServices
+//        Create Config in ConnectionQueryServices, but don't surface it
+//        Add getAdmin in ConnectionQueryServices
+        PhoenixTestDriver driver = initDriver(new QueryServicesTestImpl(props));
         assertTrue(DriverManager.getDriver(url) == driver);
         driver.connect(url, TEST_PROPERTIES);
+    }
+    
+    protected static void startServer(String url) throws Exception {
+        startServer(url, ReadOnlyProps.EMPTY_PROPS);
     }
 
     protected static void stopServer() throws Exception {

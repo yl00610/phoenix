@@ -73,6 +73,11 @@ public class PhoenixConnection implements Connection, com.salesforce.phoenix.jdb
     
     private boolean isClosed = false;
     
+    public PhoenixConnection(PhoenixConnection connection) throws SQLException {
+        this(connection.getQueryServices(), connection.getURL(), connection.getClientInfo(), connection.getPMetaData());
+        this.isAutoCommit = connection.isAutoCommit;
+    }
+    
     public PhoenixConnection(ConnectionQueryServices services, String url, Properties info, PMetaData metaData) throws SQLException {
         this.url = url;
         // Copy so client cannot change
@@ -80,9 +85,9 @@ public class PhoenixConnection implements Connection, com.salesforce.phoenix.jdb
         this.services = services;
         this.scn = JDBCUtil.getCurrentSCN(url, this.info);
         this.tenantId = JDBCUtil.getTenantId(url, this.info);
-        this.mutateBatchSize = JDBCUtil.getMutateBatchSize(url, this.info, services.getConfig());
-        datePattern = services.getConfig().get(QueryServices.DATE_FORMAT_ATTRIB, DateUtil.DEFAULT_DATE_FORMAT);
-        int maxSize = services.getConfig().getInt(QueryServices.MAX_MUTATION_SIZE_ATTRIB,QueryServicesOptions.DEFAULT_MAX_MUTATION_SIZE);
+        this.mutateBatchSize = JDBCUtil.getMutateBatchSize(url, this.info, services.getProps());
+        datePattern = services.getProps().get(QueryServices.DATE_FORMAT_ATTRIB, DateUtil.DEFAULT_DATE_FORMAT);
+        int maxSize = services.getProps().getInt(QueryServices.MAX_MUTATION_SIZE_ATTRIB,QueryServicesOptions.DEFAULT_MAX_MUTATION_SIZE);
         Format dateTimeFormat = DateUtil.getDateFormatter(datePattern);
         formatters[PDataType.DATE.ordinal()] = dateTimeFormat;
         formatters[PDataType.TIME.ordinal()] = dateTimeFormat;
@@ -561,11 +566,11 @@ public class PhoenixConnection implements Connection, com.salesforce.phoenix.jdb
     }
 
     @Override
-    public PMetaData addColumn(String schemaName, String tableName, List<PColumn> columns, long tableSeqNum, long tableTimeStamp)
+    public PMetaData addColumn(String schemaName, String tableName, List<PColumn> columns, long tableTimeStamp, long tableSeqNum, boolean isImmutableRows)
             throws SQLException {
-        metaData = metaData.addColumn(schemaName, tableName, columns, tableSeqNum, tableTimeStamp);
+        metaData = metaData.addColumn(schemaName, tableName, columns, tableTimeStamp, tableSeqNum, isImmutableRows);
         //Cascade through to connectionQueryServices too
-        getQueryServices().addColumn(schemaName, tableName, columns, tableSeqNum, tableTimeStamp);
+        getQueryServices().addColumn(schemaName, tableName, columns, tableTimeStamp, tableSeqNum, isImmutableRows);
         return metaData;
     }
 
@@ -579,10 +584,10 @@ public class PhoenixConnection implements Connection, com.salesforce.phoenix.jdb
 
     @Override
     public PMetaData removeColumn(String schemaName, String tableName, String familyName, String columnName,
-            long tableSeqNum, long tableTimeStamp) throws SQLException {
-        metaData = metaData.removeColumn(schemaName, tableName, familyName, columnName, tableSeqNum, tableTimeStamp);
+            long tableTimeStamp, long tableSeqNum) throws SQLException {
+        metaData = metaData.removeColumn(schemaName, tableName, familyName, columnName, tableTimeStamp, tableSeqNum);
         //Cascade through to connectionQueryServices too
-        getQueryServices().removeColumn(schemaName, tableName, familyName, columnName, tableSeqNum, tableTimeStamp);
+        getQueryServices().removeColumn(schemaName, tableName, familyName, columnName, tableTimeStamp, tableSeqNum);
         return metaData;
     }
 }

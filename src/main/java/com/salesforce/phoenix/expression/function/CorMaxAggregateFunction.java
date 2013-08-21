@@ -65,8 +65,8 @@ public class CorMaxAggregateFunction extends DelegateConstantToCountAggregateFun
 	 *         inputs versus the outputs and false otherwise
 	 */
 	@Override
-	public boolean preservesOrder() {
-		return false;
+	public OrderPreserving preservesOrder() {
+		return OrderPreserving.NO;
 	}
 
 	@Override

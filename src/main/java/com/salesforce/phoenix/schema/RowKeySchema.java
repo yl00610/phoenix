@@ -90,11 +90,12 @@ public class RowKeySchema extends ValueSchema {
             value="NP_BOOLEAN_RETURN_NULL", 
             justification="Designed to return null.")
     public Boolean next(ImmutableBytesWritable ptr, int position, int maxOffset, ValueBitSet bitSet) {
-        if (ptr.getOffset() + ptr.getLength() > maxOffset) {
+        if (ptr.getOffset() + ptr.getLength() >= maxOffset) {
+            ptr.set(ptr.get(), maxOffset, 0);
             return null;
         }
         // If positioned at SEPARATOR_BYTE, skip it.
-        if (position > 0 && !getField(position-1).getType().isFixedWidth() && position-1 < getMaxFields() && ptr.get()[ptr.getOffset()+ptr.getLength()] == QueryConstants.SEPARATOR_BYTE) {
+        if (position > 0 && !getField(position-1).getType().isFixedWidth() && position < getMaxFields() && ptr.get()[ptr.getOffset()+ptr.getLength()] == QueryConstants.SEPARATOR_BYTE) {
             ptr.set(ptr.get(), ptr.getOffset()+ptr.getLength()+1, 0);
         }
         return super.next(ptr,position,maxOffset, bitSet);

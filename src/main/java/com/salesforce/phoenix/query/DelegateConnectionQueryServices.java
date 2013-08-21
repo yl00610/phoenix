@@ -30,10 +30,8 @@ package com.salesforce.phoenix.query;
 import java.sql.SQLException;
 import java.util.*;
 
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.HTableInterface;
-import org.apache.hadoop.hbase.client.Mutation;
+import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Pair;
 
@@ -81,9 +79,9 @@ public class DelegateConnectionQueryServices extends DelegateQueryServices imple
     }
 
     @Override
-    public PMetaData addColumn(String schemaName, String tableName, List<PColumn> columns, long tableSeqNum,
-            long tableTimeStamp) throws SQLException {
-        return getDelegate().addColumn(schemaName, tableName, columns, tableSeqNum, tableTimeStamp);
+    public PMetaData addColumn(String schemaName, String tableName, List<PColumn> columns, long tableTimeStamp,
+            long tableSeqNum, boolean isImmutableRows) throws SQLException {
+        return getDelegate().addColumn(schemaName, tableName, columns, tableTimeStamp, tableSeqNum, isImmutableRows);
     }
 
     @Override
@@ -94,8 +92,8 @@ public class DelegateConnectionQueryServices extends DelegateQueryServices imple
 
     @Override
     public PMetaData removeColumn(String schemaName, String tableName, String familyName, String columnName,
-            long tableSeqNum, long tableTimeStamp) throws SQLException {
-        return getDelegate().removeColumn(schemaName, tableName, familyName, columnName, tableSeqNum, tableTimeStamp);
+            long tableTimeStamp, long tableSeqNum) throws SQLException {
+        return getDelegate().removeColumn(schemaName, tableName, familyName, columnName, tableTimeStamp, tableSeqNum);
     }
 
     @Override
@@ -109,13 +107,15 @@ public class DelegateConnectionQueryServices extends DelegateQueryServices imple
     }
 
     @Override
-    public MetaDataMutationResult createTable(final List<Mutation> tabeMetaData, boolean isView, Map<String,Object> tableProps, final List<Pair<byte[],Map<String,Object>>> families, byte[][] splits) throws SQLException {
-        return getDelegate().createTable(tabeMetaData, isView, tableProps, families, splits);
+    public MetaDataMutationResult createTable(List<Mutation> tableMetaData, PTableType tableType,
+            Map<String, Object> tableProps, List<Pair<byte[], Map<String, Object>>> families, byte[][] splits)
+            throws SQLException {
+        return getDelegate().createTable(tableMetaData, tableType, tableProps, families, splits);
     }
 
     @Override
-    public MetaDataMutationResult dropTable(List<Mutation> tabeMetaData, boolean isView) throws SQLException {
-        return getDelegate().dropTable(tabeMetaData, isView);
+    public MetaDataMutationResult dropTable(List<Mutation> tabeMetaData, PTableType tableType) throws SQLException {
+        return getDelegate().dropTable(tabeMetaData, tableType);
     }
 
     @Override
@@ -129,6 +129,11 @@ public class DelegateConnectionQueryServices extends DelegateQueryServices imple
     }
 
     @Override
+    public MetaDataMutationResult updateIndexState(List<Mutation> tableMetadata, String parentTableName) throws SQLException {
+        return getDelegate().updateIndexState(tableMetadata, parentTableName);
+    }
+    
+    @Override
     public void init(String url, Properties props) throws SQLException {
         getDelegate().init(url, props);
     }
@@ -141,5 +146,15 @@ public class DelegateConnectionQueryServices extends DelegateQueryServices imple
     @Override
     public int getLowestClusterHBaseVersion() {
         return getDelegate().getLowestClusterHBaseVersion();
+    }
+
+    @Override
+    public HBaseAdmin getAdmin() throws SQLException {
+        return getDelegate().getAdmin();
+    }
+
+    @Override
+    public HTableDescriptor getTableDescriptor(byte[] tableName) throws SQLException {
+        return getDelegate().getTableDescriptor(tableName);
     }
 }

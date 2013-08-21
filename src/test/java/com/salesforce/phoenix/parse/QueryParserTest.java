@@ -27,16 +27,14 @@
  ******************************************************************************/
 package com.salesforce.phoenix.parse;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 
 import java.io.StringReader;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.List;
-import java.util.Set;
 
+import org.apache.hadoop.hbase.util.Pair;
 import org.junit.Test;
 
 import com.salesforce.phoenix.schema.ColumnModifier;
@@ -108,18 +106,12 @@ public class QueryParserTest {
 
     @Test
     public void testCountDistinctQuery() throws Exception {
-        try {
-            SQLParser parser = new SQLParser(new StringReader(
-                "select count(distinct foo) from core.custom_entity_data t\n" + 
-                "where (t.created_date > to_date('01/01/2001'))\n" + 
-                "and (t.organization_id = '000000000000000')\n" + 
-                "and (t.key_prefix = '001')\n" +
-                "limit 4500"
-                ));
-            parser.parseStatement();
-            fail();
-        } catch (SQLFeatureNotSupportedException e) {
-        }
+        SQLParser parser = new SQLParser(new StringReader(
+                "select count(distinct foo) from core.custom_entity_data t\n"
+                        + "where (t.created_date > to_date('01/01/2001'))\n"
+                        + "and (t.organization_id = '000000000000000')\n"
+                        + "and (t.key_prefix = '001')\n" + "limit 4500"));
+        parser.parseStatement();
     }
 
     @Test
@@ -440,10 +432,10 @@ public class QueryParserTest {
     		String s = "create table core.entity_history_archive (id CHAR(15), name VARCHAR(150) constraint pk primary key (id ${o}, name ${o}))".replace("${o}", order);
     		CreateTableStatement stmt = (CreateTableStatement)new SQLParser(new StringReader(s)).parseStatement();
     		PrimaryKeyConstraint pkConstraint = stmt.getPrimaryKeyConstraint();
-    		Set<String> columnNames = pkConstraint.getColumnNames();
-    		assertEquals(2, columnNames.size());
-    		for (String columnName : columnNames) {
-    			assertEquals(ColumnModifier.fromDDLValue(order), pkConstraint.getColumnModifier(columnName));
+    		List<Pair<ColumnName,ColumnModifier>> columns = pkConstraint.getColumnNames();
+    		assertEquals(2, columns.size());
+    		for (Pair<ColumnName,ColumnModifier> pair : columns) {
+    			assertEquals(ColumnModifier.fromDDLValue(order), pkConstraint.getColumn(pair.getFirst()).getSecond());
     		}    		
     	}
     }
@@ -487,7 +479,15 @@ public class QueryParserTest {
             parser.parseStatement();
             fail("Should have caught bad decimal definition.");
         } catch (SQLException e) {
-            assertTrue(e.getMessage(), e.getMessage().contains("ERROR 209 (22003): Decimal precision outside of range. Should be within 1 and 31. columnName=COL"));
+            assertTrue(e.getMessage(), e.getMessage().contains("ERROR 209 (22003): Decimal precision outside of range. Should be within 1 and 38. columnName=COL"));
+        }
+        try {
+            SQLParser parser = new SQLParser("CREATE TABLE IF NOT EXISTS testBadDecimalDef" + 
+                    "  (pk VARCHAR NOT NULL PRIMARY KEY, col DECIMAL(40, 5))");
+            parser.parseStatement();
+            fail("Should have caught bad decimal definition.");
+        } catch (SQLException e) {
+            assertTrue(e.getMessage(), e.getMessage().contains("ERROR 209 (22003): Decimal precision outside of range. Should be within 1 and 38. columnName=COL"));
         }
     }
 
@@ -510,5 +510,20 @@ public class QueryParserTest {
             assertTrue(e.getMessage(), e.getMessage().contains("ERROR 210 (22003): Missing length for BINARY. columnName=COL"));
         }
     }
-    
+
+    @Test
+    public void testPercentileQuery1() throws Exception {
+        SQLParser parser = new SQLParser(
+                new StringReader(
+                        "select PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY salary DESC) from core.custom_index_value ind"));
+        parser.parseStatement();
+    }
+
+    @Test
+    public void testPercentileQuery2() throws Exception {
+        SQLParser parser = new SQLParser(
+                new StringReader(
+                        "select PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mark ASC) from core.custom_index_value ind"));
+        parser.parseStatement();
+    }
 }
