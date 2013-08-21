@@ -88,7 +88,8 @@ public class TestUtil {
     public final static String ROW9 = "00C923122312312";
 
     public static final long MILLIS_IN_DAY = 1000 * 60 * 60 * 24;
-    public static final String PHOENIX_JDBC_URL = "jdbc:phoenix:localhost;test=true";
+//    public static final String PHOENIX_JDBC_URL = "jdbc:phoenix:localhost;test=true";
+    public static final String PHOENIX_JDBC_URL = "jdbc:phoenix:cfgtps1q-phys.nam.nsroot.net:2181:/phoneix-hbase;test=true";
     public static final String PHOENIX_CONNECTIONLESS_JDBC_URL = PhoenixRuntime.JDBC_PROTOCOL + PhoenixRuntime.JDBC_PROTOCOL_SEPARATOR + PhoenixRuntime.CONNECTIONLESS  + ";test=true";
 
     public static final String TEST_SCHEMA_FILE_NAME = "config" + File.separator + "test-schema.xml";

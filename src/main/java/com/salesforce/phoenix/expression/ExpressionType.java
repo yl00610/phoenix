@@ -85,7 +85,8 @@ public enum ExpressionType {
     RTrimFunction(RTrimFunction.class),
     UpperFunction(UpperFunction.class),
     LowerFunction(LowerFunction.class),
-    TrimFunction(TrimFunction.class);
+    TrimFunction(TrimFunction.class),
+    LatestPriceFunction(CorMaxAggregateFunction.class);
 
     ExpressionType(Class<? extends Expression> clazz) {
         this.clazz = clazz;

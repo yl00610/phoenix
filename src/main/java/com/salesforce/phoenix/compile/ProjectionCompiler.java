@@ -177,7 +177,12 @@ public class ProjectionCompiler {
                 String columnAlias = aliasedNode.getAlias();
                 boolean isCaseSensitive = aliasedNode.isCaseSensitve() || selectVisitor.isCaseSensitive;
                 String name = columnAlias == null ? node.toString() : columnAlias;
-                projectedColumns.add(new ExpressionProjector(name, table.getName().getString(), expression, isCaseSensitive));
+                
+				if (node instanceof CorMaxAggregateParseNode) {
+					projectedColumns.add(new CorMaxExpressionProjector(name, table.getName().getString(), expression, isCaseSensitive));
+				} else {
+					projectedColumns.add(new ExpressionProjector(name, table.getName().getString(), expression, isCaseSensitive));
+				}
             }
             selectVisitor.reset();
             index++;
